@@ -299,6 +299,7 @@ struct buf {
 	int plen, row, off, top;
 	long mtime;			/* modification time */
 	signed char td;			/* text direction */
+	char readonly;			/* read only */
 };
 extern int xbufcur;
 extern struct buf *ex_buf;
@@ -333,7 +334,7 @@ int ex_exec(const char *ln);
 char *ex_read(char *msg);
 void ex_print(char *line);
 void ex_show(char *msg);
-void ex_init(char **files, int n);
+void ex_init(char **files, int n, char** cmds, int cmdnum);
 void ex_bufpostfix(struct buf *p, int clear);
 int ex_krs(rset **krs, int *dir);
 void ex_krsset(char *kwd, int dir);
@@ -435,3 +436,5 @@ extern rset *fsincl;
 extern char *fs_exdir;
 extern int vi_hidch;
 extern int vi_insmov;
+extern int stdin_fd;
+extern char readonly;
