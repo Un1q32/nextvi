@@ -1,0 +1,7 @@
+arrowkeys_insert.patch
+arrowkeys_normal.patch
+c_option.patch
+filetype_shebang.patch
+stdin_pipe.patch
+exrc.patch
+readonly.patch
