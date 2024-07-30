@@ -288,7 +288,7 @@ static int led_lastword(char *s)
 	return r - s;
 }
 
-static void led_printparts(char *ai, char *pref, char *main, char *post, int print)
+static void led_printparts(char *ai, char *pref, char *main, char *post)
 {
 	if (!xled)
 		return;
@@ -309,10 +309,8 @@ static void led_printparts(char *ai, char *pref, char *main, char *post, int pri
 		xleft = pos - xcols / 2;
 	if (pos < xleft)
 		xleft = pos < xcols ? 0 : pos - xcols / 2;
-	if (print) {
-		syn_blockhl = 0;
-		led_print(ln->s, -1);
-	}
+	syn_blockhl = 0;
+	led_print(ln->s, -1);
 	/* cursor position for inserting the next character */
 	if (*pref || *main || *ai) {
 		if (off - 2 >= 0)
@@ -389,8 +387,7 @@ static char *led_line(char *pref, char *post, char *ai,
 	if (!post)
 		post = "";
 	while (1) {
-		led_printparts(ai, pref, sb->s, post, !memchr("ABCD", vi_insmov, 4));
-		vi_insmov = -1;
+		led_printparts(ai, pref, sb->s, post);
 		len = sb->s_n;
 		c = term_read();
 		switch (c) {
@@ -574,20 +571,6 @@ static char *led_line(char *pref, char *post, char *ai,
 		case TK_CTL('l'):
 			term_clean();
 			continue;
-		case '\033':;	/* Arrow keys */
-			char cbuf[1];
-			cbuf[0] = '\0';
-			int fl = fcntl(STDIN_FILENO, F_GETFL);
-			fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
-			read(STDIN_FILENO, cbuf, 1);
-			if (*cbuf == '[') {
-				read(STDIN_FILENO, cbuf, 1);
-				vi_insmov = *cbuf;
-				fcntl(STDIN_FILENO, F_SETFL, fl);
-				goto _leave;
-			}
-			fcntl(STDIN_FILENO, F_SETFL, fl);
-			goto leave;
 		case TK_CTL('o'):;
 			preserve(int, xvis, 0)
 			term_exec(":", 1, /*nop*/, /*nop*/)
@@ -605,7 +588,6 @@ static char *led_line(char *pref, char *post, char *ai,
 	}
 leave:
 	vi_insmov = c;
-_leave:
 	*key = c;
 	sbufn_done(sb)
 }
@@ -656,7 +638,7 @@ sbuf *led_input(char *pref, char **post, int *kmap, int row)
 			free(ln);
 			break;
 		}
-		led_printparts(ai, pref, uc_lastline(ln), "", 1);
+		led_printparts(ai, pref, uc_lastline(ln), "");
 		term_chr('\n');
 		if (ai_max && !pref[0]) {	/* updating autoindent */
 			int ai_new = 0; 	/* number of initial spaces in ln */
