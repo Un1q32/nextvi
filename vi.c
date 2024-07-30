@@ -330,8 +330,8 @@ void ex_show(char *msg)
 		term_chr('\n');
 		syn_setft(ex_ft);
 	} else {
-		term_write(msg, dstrlen(msg, '\n'));
-		term_write("\n", 1);
+		term_write(msg, dstrlen(msg, '\n'))
+		term_write("\n", 1)
 	}
 }
 
@@ -340,14 +340,18 @@ void ex_print(char *line)
 {
 	syn_blockhl = 0;
 	if (!(xvis & 4)) {
-		vi_printed += line ? 1 : 2;
+		if (vi_printed == 1 || !line)
+			term_chr('\n');
 		if (line) {
 			snprintf(vi_msg, sizeof(vi_msg), "%s", line);
 			syn_setft("/-");
 			led_reprint(line, -1);
 			syn_setft(ex_ft);
-		}
-		term_chr('\n');
+			if (vi_printed > 0)
+				term_chr('\n');
+			vi_printed++;
+		} else
+			vi_printed = 2;
 	} else if (line)
 		ex_show(line);
 }
