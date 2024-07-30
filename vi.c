@@ -1068,6 +1068,8 @@ static char *vi_indents(char *ln)
 	sbufn_done(sb)
 }
 
+static int lmodified;
+
 static void vi_change(int r1, int o1, int r2, int o2, int lnmode)
 {
 	char *region, *pref, *post, *_post;
@@ -1091,6 +1093,7 @@ static void vi_change(int r1, int o1, int r2, int o2, int lnmode)
 	sbuf_free(rep)
 	free(pref);
 	free(_post);
+	lmodified = 1;
 }
 
 static void vi_case(int r1, int o1, int r2, int o2, int lnmode, int cmd)
@@ -1256,8 +1259,10 @@ static void vc_insert(int cmd)
 		xoff = charcount(rep->s, rep->s_n, post, l2 - (post - _post));
 		if (cmdo && !lbuf_len(xb))
 			lbuf_edit(xb, "\n", 0, 0);
+		lmodified = 1;
 		lbuf_edit(xb, rep->s, row, row + !cmdo);
-	}
+	} else
+		lmodified = 0;
 	sbuf_free(rep)
 	free(pref);
 	free(_post);
@@ -1797,6 +1802,37 @@ void vi(int init)
 				vc_insert(c);
 				ins:
 				vi_mod |= !xpac && xrow == orow ? 8 : 1;
+				switch (vi_insmov) {
+				case 'A':	/* ↑ */
+					vi_back(!lmodified ? c : 'i');
+					if (lmodified)
+						vi_col = vi_off2col(xb, xrow, xoff);
+					xrow--;
+					xrow = xrow < 0 ? 0 : xrow;
+					xoff = vi_col2off(xb, xrow, vi_col);
+					lmodified = 0;
+					goto _break;
+				case 'B':	/* ↓ */
+					vi_back(!lmodified ? c : 'i');
+					if (lmodified)
+						vi_col = vi_off2col(xb, xrow, xoff);
+					xrow++;
+					xoff = vi_col2off(xb, xrow, vi_col);
+					lmodified = 0;
+					goto _break;
+				case 'D':	/* ← */
+					vi_back('i');
+					xoff--;
+					xoff = xoff < 0 ? 0 : xoff;
+					vi_col = vi_off2col(xb, xrow, xoff);
+					goto _break;
+				case 'C':	/* → */
+					vi_back(*uc_chr(lbuf_get(xb, xrow), xoff+2) ? 'i' : 'A');
+					xoff++;
+					if (*uc_chr(lbuf_get(xb, xrow), xoff))
+						vi_col = vi_off2col(xb, xrow, xoff);
+					goto _break;
+				}
 				if (vi_insmov == 127) {
 					if (xrow && !(xoff > 0 && lbuf_eol(xb, xrow))) {
 						xoff = lbuf_eol(xb, --xrow);
@@ -1809,6 +1845,9 @@ void vi(int init)
 				if (c != 'A' && c != 'C')
 					xoff--;
 				xoff = xoff < 0 ? 0 : xoff;
+				break;
+				_break:
+				vi_mod = 0;
 				break;
 			case 'J':
 				vc_join(vi_joinmode, vi_arg1 <= 1 ? 2 : vi_arg1);
