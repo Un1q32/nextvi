@@ -316,6 +316,7 @@ struct buf {
 	int plen, row, off, top;
 	long mtime;			/* modification time */
 	signed char td;			/* text direction */
+	char readonly;			/* read only */
 };
 extern int xbufcur;
 extern struct buf *ex_buf;
@@ -349,7 +350,7 @@ int ex_exec(const char *ln);
 char *ex_read(char *msg);
 void ex_cprint(char *line, int r, int c, int ln);
 #define ex_print(line) ex_cprint(line, -1, 0, 1)
-void ex_init(char **files, int n);
+void ex_init(char **files, int n, char** cmds, int cmdnum);
 void ex_bufpostfix(struct buf *p, int clear);
 int ex_krs(rset **krs, int *dir);
 void ex_krsset(char *kwd, int dir);
@@ -419,6 +420,7 @@ void vi_regput(int c, const char *s, int ln);
 /* file system */
 void dir_calc(char *path);
 /* global variables */
+extern int stdin_fd;
 extern int xrow;
 extern int xoff;
 extern int xtop;
@@ -453,3 +455,4 @@ extern char *fs_exdir;
 extern int vi_hidch;
 extern int vi_insmov;
 extern int vi_lncol;
+extern char readonly;
