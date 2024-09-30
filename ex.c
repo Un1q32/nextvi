@@ -38,6 +38,7 @@ static int xbufsmax;		/* number of buffers */
 static int xbufsalloc = 10;	/* initial number of buffers */
 static char xrep[EXLEN];	/* the last replacement */
 static int xgdep;		/* global command recursion depth */
+char readonly = 0;		/* commandline readonly option */
 
 static int rstrcmp(const char *s1, const char *s2, int l1, int l2)
 {
@@ -99,6 +100,7 @@ static int bufs_open(const char *path, int len)
 	bufs[i].top = 0;
 	bufs[i].td = +1;
 	bufs[i].mtime = -1;
+	bufs[i].readonly = readonly;
 	return i;
 }
 
@@ -412,6 +414,8 @@ static int ec_edit(char *loc, char *cmd, char *arg)
 		bufs_switch(bufs_open(arg+cd, len));
 		cd = 3; /* XXX: sigh... */
 	}
+	if (access(arg, F_OK) == 0 && access(arg, W_OK) == -1)
+		ex_buf->readonly = 1;
 	readfile(rd =)
 	if (cd == 3 || (!rd && fd >= 0)) {
 		ex_bufpostfix(ex_buf, arg[0]);
@@ -551,6 +555,10 @@ static int ec_write(char *loc, char *cmd, char *arg)
 	} else {
 		int fd;
 		if (!strchr(cmd, '!')) {
+			if (ex_buf->readonly) {
+				ex_print("write failed: readonly option is set");
+				return 1;
+			}
 			if (!strcmp(ex_path, path) && mtime(path) > ex_buf->mtime) {
 				ex_print("write failed: file changed");
 				return 1;
@@ -1059,6 +1067,12 @@ static int ec_setenc(char *loc, char *cmd, char *arg)
 	return 0;
 }
 
+static int ec_readonly(char *loc, char *cmd, char *arg)
+{
+	ex_buf->readonly = !ex_buf->readonly;
+	return 0;
+}
+
 static struct excmd {
 	char *name;
 	int (*ec)(char *loc, char *cmd, char *arg);
@@ -1110,6 +1124,7 @@ static struct excmd {
 	{"bx", ec_setbufsmax},
 	{"ac", ec_setacreg},
 	{"uc", ec_setenc},
+	{"ro", ec_readonly},
 	{"", ec_print},
 };
 
