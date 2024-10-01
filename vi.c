@@ -2104,9 +2104,9 @@ int main(int argc, char *argv[])
 	temp_open(1, "/fm/", "/fm");
 	if (argv[0]) {
 		size_t len = strlen(argv[0]);
-		if (len > 2 && !strcmp(argv[0] + len - 2, "ex"))
+		if (len >= 2 && !strcmp(argv[0] + len - 2, "ex"))
 			xvis |= 4;
-		else if (len > 4 && !strcmp(argv[0] + len - 4, "view"))
+		else if (len >= 4 && !strcmp(argv[0] + len - 4, "view"))
 			readonly = 1;
 	}
 	for (i = 1; i < argc && argv[i][0] == '-'; i++) {
