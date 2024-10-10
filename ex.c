@@ -523,9 +523,10 @@ static int ec_read(char *loc, char *cmd, char *arg)
 
 static int ex_pipeout(char *cmd, char *buf)
 {
-	if (!(xvis & 4))
+	if (!(xvis & 4)) {
 		term_chr('\n');
-	xmpt = xmpt >= 0 ? 2 : xmpt;
+		xmpt = xmpt >= 0 ? 2 : xmpt;
+	}
 	return !!cmd_pipe(cmd, buf, 0);
 }
 
@@ -1050,12 +1051,27 @@ static int ec_regprint(char *loc, char *cmd, char *arg)
 
 static int ec_setenc(char *loc, char *cmd, char *arg)
 {
+	if (cmd[0] == 'p') {
+		if (!*arg)
+			phlen = _phlen;
+		else if (phlen < LEN(ph)) {
+			ph[phlen].cp[0] = strtol(arg, &arg, 0);
+			ph[phlen].cp[1] = strtol(arg, &arg, 0);
+			ph[phlen].wid = strtol(arg, &arg, 2);
+			ph[phlen++].l = strtol(arg, &arg, 2);
+			if (strlen(arg) && strlen(arg) < LEN(ph[0].d))
+				strcpy(ph[phlen-1].d, arg);
+		} else
+			ex_print("no space for placeholder");
+		return 0;
+	}
 	if (utf8_length[0xc0] == 1) {
 		memset(utf8_length+0xc0, 2, 0xe0 - 0xc0);
 		memset(utf8_length+0xe0, 3, 0xf0 - 0xe0);
 		memset(utf8_length+0xf0, 4, 0xf8 - 0xf0);
-	} else
-		memset(utf8_length+1, 1, 255);
+		return 0;
+	}
+	memset(utf8_length+1, 1, 255);
 	return 0;
 }
 
@@ -1110,6 +1126,7 @@ static struct excmd {
 	{"bx", ec_setbufsmax},
 	{"ac", ec_setacreg},
 	{"uc", ec_setenc},
+	{"ph", ec_setenc},
 	{"", ec_print},
 };
 

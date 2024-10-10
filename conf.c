@@ -236,6 +236,7 @@ strike|tt|xmp|doctype|h1|h2|h3|h4|h5|h6|\
 
 	/* status bar (is never '\n' terminated) */
 	{"/-", "^(\".*\").*(\\[[wrf]\\]).*$", {8 | SYN_BD, 4, 1}},
+	{"/-", "^<(.+)> [^ ]+ (O[0-9]+) (C[0-9]+)$", {8 | SYN_BD, 9, 14, 11}},
 	{"/-", "^(\".*\").* ([0-9]{1,3}%) (L[0-9]+) (C[0-9]+) (B-?[0-9]+)?.*$",
 		{8 | SYN_BD, 4, 9, 4, 11, 2}},
 	{"/-", "^.*$", {8 | SYN_BD}},
@@ -262,12 +263,12 @@ struct dirmark dmarks[] = {
 };
 int dmarkslen = LEN(dmarks);
 
-struct placeholder ph[] = {
-	{{0x0,0x1f}, "^", 1, 1},
-	{{0x7f,0xff}, "~", 1, 1},
-	{{0x200c,0x200d}, "-", 1, 3},
+struct placeholder ph[5] = {
+	{{0x0,0x1f}, {'^'}, 1, 1},
+	{{0x200c,0x200d}, {'-'}, 1, 3},
 };
-int phlen = LEN(ph);
+const int _phlen = 2;
+int phlen = _phlen;
 
 int conf_hlrev(void)
 {
