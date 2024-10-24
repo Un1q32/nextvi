@@ -22,7 +22,7 @@ int xpac;			/* print autocomplete options */
 int xkwdcnt;			/* number of search kwd changes */
 int xbufcur;			/* number of active buffers */
 int xgrec;			/* global vi/ex recursion depth */
-int xexrc;			/* read .exrc from the current directory */
+int xexrc = 0;			/* read .exrc from the current directory */
 struct buf *bufs;		/* main buffers */
 struct buf tempbufs[2];		/* temporary buffers, for internal use */
 struct buf *ex_buf;		/* current buffer */
@@ -1223,21 +1223,29 @@ void ex(void)
 	xgrec--;
 }
 
-char *load_line(FILE *fp)
+void ex_script(FILE *fp)
 {
-	char *ln = NULL;
-	int n = 0;
-	int c;
-	while ((c = fgetc(fp)) != EOF && c != '\n') {
-		ln = erealloc(ln, n + 2);
-		ln[n++] = c;
-	}
-	if (c == EOF && !n) {
+	char done = 0;
+	do {
+		size_t n = 128, i = 0;
+		int c;
+		char *ln = malloc(128);
+		while ((c = fgetc(fp)) != EOF && c != '\n') {
+			if (i >= n - 2) {
+				n += 128;
+				ln = erealloc(ln, n);
+			}
+			ln[i++] = c;
+		}
+		if (!i) {
+			free(ln);
+			done = 1;
+			break;
+		}
+		ln[i] = '\0';
+		ex_command(ln);
 		free(ln);
-		return NULL;
-	}
-	ln[n] = '\0';
-	return ln;
+	} while(!done);
 }
 
 void load_exrc(char *exrc)
@@ -1247,11 +1255,7 @@ void load_exrc(char *exrc)
 		if (st.st_uid == getuid() && !(st.st_mode & S_IWGRP) && !(st.st_mode & S_IWOTH)) {
 			FILE *fp = fopen(exrc, "r");
 			if (fp) {
-				char *ln = NULL;
-				while ((ln = load_line(fp))) {
-					ex_command(ln);
-					free(ln);
-				}
+				ex_script(fp);
 				fclose(fp);
 			} else {
 				fprintf(stderr, "Cannot open ~/.exrc\n");
@@ -1296,8 +1300,12 @@ void ex_init(char **files, int n, char **cmds, int cmdnum)
 			load_exrc(exrc);
 		}
 	}
-	if (xexrc && strcmp(getcwd(NULL, 0), getenv("HOME")))
-		load_exrc(".exrc");
+	if (xexrc) {
+		char buf[PATH_MAX];
+		getcwd(buf, PATH_MAX);
+		if (strcmp(buf, getenv("HOME")) != 0)
+			load_exrc(".exrc");
+	}
 	for (int i = 0; i < cmdnum; i++)
 		ex_command(cmds[i])
 }
