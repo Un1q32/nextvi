@@ -98,7 +98,8 @@ VI NORMAL
      arg1-C-r	   Redo arg1 times
      arg1-u	   Undo arg1 times
      C-i TAB	   Open file using text from the cursor to eol
-     C-k	   Write the current buffer to file. 2nd attempt force writes
+     C-k	   Write the current buffer to file. Force write on 2nd
+		   attempt
      arg1-C-w-arg2
 		   Unindent arg2 region
      arg1-<-arg2   Indent left arg2 region
@@ -277,6 +278,10 @@ EX RANGES
      :1,5p   print lines 1,5
      :.-5,.+5p
 	     print 5 lines around xrow
+     :/int/p
+	     print first occurance of int
+     :?int?p
+	     print first occurance of int in reverse
      :.,/int/p
 	     print until int is found
      :?int?,.p
@@ -284,6 +289,16 @@ EX RANGES
 	     Note: in some cases . can be dropped but is kept for readability.
      :'d,'ap
 	     print lines from mark d to mark a
+     :%p     print all lines in the buffer
+     :$p     print last line in the buffer
+     :;50    goto horizontal offset 50
+     :10;50  goto line 10 offset 50
+     :10;.+5
+	     goto line 10 +5 offset
+     :'a;'a  goto line mark a offset a
+     :;$     goto eol
+     :5;/int/
+	     search for int on line 5 (similar to :f)
 
 EX COMMANDS
      f	     Ranged search (stands for find)
@@ -307,8 +322,10 @@ EX COMMANDS
 	     the main buffers.
 	     b-1 = /hist/ ex history buffer
 	     b-2 = /fm/ directory listing buffer
-	     Switching to the temporary buffer buffer:
+	     Switching to the temporary buffer:
 	     :b-1
+	     or
+	     :b-2
 
      bp	     Set current buffer path
      bs	     Set current buffer saved. If arg given, reset undo/redo history
@@ -321,7 +338,7 @@ EX COMMANDS
 	     be done with:
 	     :fd
 	     or
-	     :b-2|1,1!find .
+	     :b-2|1,$!find .
 
 	     If the substring matches more than 1 filename, a prompt will
 	     be shown. Submit using numbers 0-9 (higher ascii values work
@@ -329,9 +346,13 @@ EX COMMANDS
 	     a number will bypass the prompt and open the corresponding file.
 
      ea!     Forced version of ea
-     a	     Enter ex append mode (exiting with ^c will discard changes)
-     i	     Enter ex insert mode (exiting with ^c will discard changes)
-     c	     Enter ex change mode (exiting with ^c will discard changes)
+
+     a i c   Enter ex append/insert/change mode
+
+	     Range determines the position.
+	     Exiting with .\n or ESC will apply changes to the buffer.
+	     Exiting with ^c will discard changes.
+
      d	     Delete line(s)
      e	     Open a file at path
      e!	     Reload the current buffer from the filesystem
@@ -356,7 +377,7 @@ EX COMMANDS
 	     :g/int/:.g/;/tp A has a semicolon^C
 
      g! v    Inverted global command
-     =	     Move the cursor to a line number
+     =	     Print the current range linenumber
      k	     Set a mark
 
      tp	     Global macro (stands for term_push)
@@ -369,8 +390,7 @@ EX COMMANDS
 
      pu	     Paste a register
 
-	     Any register can be piped to an external program by
-	     specifying \! as a 2nd argument.
+	     To pipe register data to an external process use :pu \!<cmd>
 	     Example: copy default register to X11 clipboard
 	     :pu \!xclip -selection clipboard
 
@@ -379,11 +399,23 @@ EX COMMANDS
 
      r	     Read a file
 
-	     To read data from a pipe use :r \!date
+	     To read data from a file use :<range>r <filename>
+	     To read data from a pipe use :<range>r \!<cmd>
+	     Example: pipe in only the first line
+	     :r \!ls
+	     Example: pipe in only lines 3,5
+	     :3,5r \!ls
+	     Example: pipe in all data
+	     :%r \!ls
 
      w	     Soft write a to file
 
-	     To pipe data to external process use :w \!less
+	     To write data to a file use :<range>w <filename>
+	     To pipe buffer data to external process use :<range>w \!<cmd>
+	     Example: pipe out all data into less
+	     :w \!less
+	     Example: pipe out only first 10 lines
+	     :1,10w \!less
 
      w!	     Force write a to file
      wq x    Write and soft quit
@@ -427,7 +459,7 @@ EX COMMANDS
      !	     Run external program
 
 	     When ex range specified, pipes the program output into current
-	     buffer.
+	     buffer replacing the affected range.
 
      ft	     Set a filetype
 
@@ -449,7 +481,11 @@ EX COMMANDS
 	     No argument implies current directory.
 
      fp	     Set a secondary directory path (stands for file path)
+
      cd	     Set a working directory (stands for change dir)
+
+	     Currently open buffers' file paths will be automatically adjusted
+	     to reflect a newly set working directory.
 
      inc     Include regex for :fd calculation
 
@@ -463,7 +499,12 @@ EX COMMANDS
 	     Running "inc" without an arg will disable all filters.
 
      reg     Print registers and their contents
-     bx	     Set max number of buffers allowed (default is 10)
+
+     bx	     Set max number of buffers allowed
+
+	     Buffers will be deallocated if the number specified is lower
+	     than the number of buffers currently in use.
+	     No argument will reset to default value of 10.
 
      ac	     Set autocomplete filter regex
 
@@ -618,11 +659,11 @@ CODE MAP
      | 293  conf.c  | hl/ft/td config	  |
      | 658  regex.c | extended RE	  |
      | 601  lbuf.c  | file/line buffer	  |
-     | 1200 ex.c    | ex options/commands |
+     | 1213 ex.c    | ex options/commands |
      | 2054 vi.c    | normal mode/general |
      | 662  led.c   | insert mode/output  |
      | 382  ren.c   | positioning/syntax  |
-     | 6827 total   | wc -l *.c		  |
+     | 6840 total   | wc -l *.c		  |
      +--------------+---------------------+
 
 COMPILING
@@ -717,4 +758,4 @@ AUTHORS
      on neatvi(1), which was written by Ali Gholami Rudi <ali@rudi.ir>.	 This
      manual page was inspired by népéta <nepeta@canaglie.net>
 
-Linux 6.11.4-arch1-1	       October 24, 2024		  Linux 6.11.4-arch1-1
+Linux 6.11.4-arch1-1	       October 26, 2024		  Linux 6.11.4-arch1-1

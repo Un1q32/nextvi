@@ -222,7 +222,43 @@ void ex_krsset(char *kwd, int dir)
 		xkwddir = dir / 2;
 }
 
-static int ex_lineno(char **num);
+static int ec_search(char *loc, char *cmd, char *arg);
+
+static int ex_range(char **num, int n, int *row)
+{
+	switch ((unsigned char) **num) {
+	case '.':
+		++*num;
+		break;
+	case '$':
+		n = row ? lbuf_eol(xb, *row) - 1: lbuf_len(xb) - 1;
+		++*num;
+		break;
+	case '\'':
+		if (lbuf_jump(xb, (unsigned char) *++(*num),
+				&n, row ? &n : NULL))
+			return -1;
+		++*num;
+		break;
+	case '/':
+	case '?':
+		n = ec_search(NULL, (char*)row, (char*)num);
+		break;
+	default:
+		if (isdigit((unsigned char) **num)) {
+			n = atoi(*num) - 1;
+			while (isdigit((unsigned char) **num))
+				++*num;
+		}
+	}
+	while (**num == '-' || **num == '+') {
+		n += atoi((*num)++);
+		while (isdigit((unsigned char) **num))
+			++*num;
+	}
+	return n;
+}
+
 /* parse ex command addresses */
 static int ex_region(char *loc, int *beg, int *end)
 {
@@ -239,17 +275,18 @@ static int ex_region(char *loc, int *beg, int *end)
 	}
 	while (*loc) {
 		int end0 = *end;
-		*end = ex_lineno(&loc) + 1;
-		*beg = naddr++ ? end0 - 1 : *end - 1;
-		if (!naddr++)
-			*beg = *end - 1;
+		if (*loc == ';' || *loc == ',') {
+			loc++;
+			if (loc[-1] == ',')
+				goto skip;
+			xoff = ex_range(&loc, xoff, naddr ? beg : &xrow) + 1;
+		} else {
+			skip:
+			*end = ex_range(&loc, xrow, NULL) + 1;
+			*beg = naddr++ ? end0 - 1 : *end - 1;
+		}
 		while (*loc && *loc != ';' && *loc != ',')
 			loc++;
-		if (!*loc)
-			break;
-		if (*loc == ';')
-			xrow = *end - 1;
-		loc++;
 	}
 	if (*beg < 0 && *end == 0)
 		*beg = 0;
@@ -273,9 +310,10 @@ static int ec_search(char *loc, char *cmd, char *arg)
 	if (!xkwdrs)
 		return -1;
 	if (!loc) {
-		beg = xrow + (xkwddir > 0);
-		off = 0;
-		if (lbuf_search(xb, xkwdrs, xkwddir, &beg, end, &off, &len, 0))
+		beg = cmd ? *(int*)cmd : xrow + (xkwddir > 0);
+		off = cmd ? xoff : 0;
+		if (lbuf_search(xb, xkwdrs, xkwddir, &beg,
+				end, &off, &len, MIN(dir, 0)))
 			return -1;
 	} else if (!ex_region(loc, &beg, &end)) {
 		off = xoff;
@@ -285,49 +323,15 @@ static int ec_search(char *loc, char *cmd, char *arg)
 			beg = xkwddir > 0 ? beg : end++;
 		} else
 			beg = xrow;
-		if (lbuf_search(xb, xkwdrs, xkwddir, &beg, end, &off, &len, xkwddir))
+		if (lbuf_search(xb, xkwdrs, xkwddir, &beg,
+				end, &off, &len, xkwddir))
 			return -1;
 		if (beg < obeg)
 			return -1;
 		xrow = beg;
 		xoff = off;
 	}
-	return beg;
-}
-
-static int ex_lineno(char **num)
-{
-	int n = xrow;
-	switch ((unsigned char) **num) {
-	case '.':
-		++*num;
-		break;
-	case '$':
-		n = lbuf_len(xb) - 1;
-		++*num;
-		break;
-	case '\'':
-		if (lbuf_jump(xb, (unsigned char) *++(*num), &n, NULL))
-			return -1;
-		++*num;
-		break;
-	case '/':
-	case '?':
-		n = ec_search(NULL, NULL, (char*)num);
-		break;
-	default:
-		if (isdigit((unsigned char) **num)) {
-			n = atoi(*num) - 1;
-			while (isdigit((unsigned char) **num))
-				++*num;
-		}
-	}
-	while (**num == '-' || **num == '+') {
-		n += atoi((*num)++);
-		while (isdigit((unsigned char) **num))
-			++*num;
-	}
-	return n;
+	return cmd ? off - 1 : beg;
 }
 
 static int ec_buffer(char *loc, char *cmd, char *arg)
@@ -491,36 +495,46 @@ static int ec_setpath(char *loc, char *cmd, char *arg)
 static int ec_read(char *loc, char *cmd, char *arg)
 {
 	char msg[EXLEN+32];
-	int beg, end;
+	int beg, end, fd = -1;
 	char *path;
 	char *obuf;
 	int n = lbuf_len(xb);
+	int pos = MIN(xrow + 1, lbuf_len(xb));
+	struct lbuf *lb = lbuf_make(), *pxb = xb;
 	path = arg[0] ? arg : ex_path;
-	if (ex_region(loc, &beg, &end))
-		return 1;
 	if (arg[0] == '!') {
-		int pos = MIN(xrow + 1, lbuf_len(xb));
 		obuf = cmd_pipe(arg + 1, NULL, 1);
 		if (obuf)
-			lbuf_edit(xb, obuf, pos, pos);
+			lbuf_edit(lb, obuf, 0, 0);
 		free(obuf);
 	} else {
-		int fd = open(path, O_RDONLY);
-		int pos = lbuf_len(xb) ? end : 0;
-		if (fd < 0) {
-			ex_print("read failed");
-			return 1;
+		if ((fd = open(path, O_RDONLY)) < 0) {
+			strcpy(msg, "open failed");
+			goto err;
 		}
-		if (lbuf_rd(xb, fd, pos, pos)) {
-			ex_print("read failed");
-			close(fd);
-			return 1;
+		if (lbuf_rd(lb, fd, 0, 0)) {
+			strcpy(msg, "read failed");
+			goto err;
 		}
-		close(fd);
 	}
-	xrow = end + lbuf_len(xb) - n - 1;
+	xb = lb;
+	xrow = 0;
+	if (ex_region(loc, &beg, &end)) {
+		strcpy(msg, "bad region");
+		goto err;
+	}
+	obuf = lbuf_cp(lb, beg, end);
+	if (*obuf)
+		lbuf_edit(pxb, obuf, pos, pos);
 	snprintf(msg, sizeof(msg), "\"%s\" %dL [r]",
-			path, lbuf_len(xb) - n);
+			path, lbuf_len(pxb) - n);
+	free(obuf);
+	err:
+	lbuf_free(lb);
+	xrow = pos;
+	xb = pxb;
+	if (fd >= 0)
+		close(fd);
 	ex_print(msg);
 	return 0;
 }
@@ -644,7 +658,6 @@ static int ec_print(char *loc, char *cmd, char *arg)
 		for (i = beg; i < end; i++)
 			ex_print(lbuf_get(xb, i));
 	xrow = MAX(beg, end - (cmd[0] || loc[0]));
-	xoff = 0;
 	return 0;
 }
 
@@ -727,7 +740,7 @@ static int ec_mark(char *loc, char *cmd, char *arg)
 	int beg, end;
 	if (ex_region(loc, &beg, &end))
 		return 1;
-	lbuf_mark(xb, (unsigned char) arg[0], end - 1, 0);
+	lbuf_mark(xb, (unsigned char) arg[0], end - 1, xoff);
 	return 0;
 }
 
