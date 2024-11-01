@@ -2,6 +2,8 @@ sbuf *term_sbuf;
 int term_record;
 int xrows, xcols;
 int texec, tn;
+int stdin_fd;
+static int isig;
 static struct termios termios;
 
 void term_init(void)
@@ -11,20 +13,24 @@ void term_init(void)
 	struct winsize win;
 	struct termios newtermios;
 	sbufn_make(term_sbuf, 2048)
-	tcgetattr(0, &termios);
+	tcgetattr(stdin_fd, &termios);
 	newtermios = termios;
-	newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
-	tcsetattr(0, TCSAFLUSH, &newtermios);
+	if (!isig && stdin_fd)
+		newtermios.c_lflag &= ~(ICANON);
+	else
+		newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
+	tcsetattr(stdin_fd, TCSAFLUSH, &newtermios);
 	if (getenv("LINES"))
 		xrows = atoi(getenv("LINES"));
 	if (getenv("COLUMNS"))
 		xcols = atoi(getenv("COLUMNS"));
-	if (!ioctl(0, TIOCGWINSZ, &win)) {
+	if (!ioctl(stdin_fd, TIOCGWINSZ, &win)) {
 		xcols = win.ws_col;
 		xrows = win.ws_row;
 	}
 	xcols = xcols ? xcols : 80;
 	xrows = xrows ? xrows : 25;
+	isig = 1;
 }
 
 void term_done(void)
@@ -33,7 +39,7 @@ void term_done(void)
 		return;
 	term_commit();
 	sbuf_free(term_sbuf)
-	tcsetattr(0, 0, &termios);
+	tcsetattr(stdin_fd, 0, &termios);
 }
 
 void term_clean(void)
@@ -141,12 +147,12 @@ int term_read(void)
 			if (texec == '&')
 				goto ret;
 		}
-		ufds[0].fd = STDIN_FILENO;
+		ufds[0].fd = stdin_fd;
 		ufds[0].events = POLLIN;
 		/* read a single input character */
 		if (poll(ufds, 1, -1) <= 0 ||
-				(n = read(STDIN_FILENO, ibuf, 1)) <= 0) {
-			xquit = !isatty(STDIN_FILENO);
+				(n = read(stdin_fd, ibuf, 1)) <= 0) {
+			xquit = !isatty(stdin_fd);
 			ret:
 			*ibuf = 0;
 			n = 1;
@@ -324,7 +330,7 @@ char *cmd_pipe(char *cmd, char *ibuf, int oproc)
 		close(ifd);
 	waitpid(pid, NULL, 0);
 	signal(SIGTTOU, SIG_IGN);
-	tcsetpgrp(STDIN_FILENO, getpgrp());
+	tcsetpgrp(stdin_fd, getpgrp());
 	signal(SIGTTOU, SIG_DFL);
 	if (!ibuf) {
 		term_init();

@@ -427,6 +427,7 @@ void vi_regput(int c, const char *s, int ln);
 /* file system */
 void dir_calc(char *path);
 /* global variables */
+extern int stdin_fd;
 extern int xrow;
 extern int xoff;
 extern int xtop;
