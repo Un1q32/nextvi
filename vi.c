@@ -489,28 +489,6 @@ static int vi_motionln(int *row, int cmd)
 	int c = vi_read();
 	int mark, mark_row, mark_off;
 	switch (c) {
-	case '\033':	/* Arrow keys */
-		c = vi_read();
-		if (c == '[') {
-			c = vi_read();
-			switch (c) {
-			case 'A':	/* ↑ */
-				*row = MAX(*row - cnt, 0);
-				c = 'k';
-				break;
-			case 'B':	/* ↓ */
-				*row = MIN(*row + cnt, lbuf_len(xb) - 1);
-				c = 'j';
-				break;
-			default:	/* Not a line motion so we put back all the arrow characters */
-				vi_back(c);
-				vi_back('[');
-				vi_back('\033');
-				return 0;
-			}
-		} else /* Not an arrow sequence so we abort */
-			return 0;
-		break;
 	case '\n':
 	case '+':
 		*row = MIN(*row + cnt, lbuf_len(xb) - 1);
@@ -749,25 +727,6 @@ static int vi_motion(int *row, int *off)
 	}
 	mv = vi_read();
 	switch (mv) {
-	case '\033':	/* Arrow keys */
-		mv = vi_read();
-		if (mv == '[') {
-			dir = dir_context(lbuf_get(xb, *row));
-			mv = vi_read();
-			switch (mv) {
-			case 'D':	/* ← */
-				dir = -dir;
-			case 'C':	/* → */
-				for (i = 0; i < cnt; i++)
-					if (vi_nextcol(xb, dir, row, off))
-						break;
-				break;
-			default:	/* Not a motion managed by this function so we abort */
-				return 0;
-			}
-		} else	/* Not a 033[X command so we abort */
-			return 0;
-		break;
 	case ',':
 		cnt = -cnt;
 	case ';':
@@ -1040,8 +999,6 @@ static char *vi_indents(char *ln, int *l)
 	sbufn_done(sb)
 }
 
-static int lmodified;
-
 static void vi_change(int r1, int o1, int r2, int o2, int lnmode)
 {
 	char *region, *pref, *post, *_post;
@@ -1065,7 +1022,6 @@ static void vi_change(int r1, int o1, int r2, int o2, int lnmode)
 	sbuf_free(rep)
 	free(pref);
 	free(_post);
-	lmodified = 1;
 }
 
 static void vi_case(int r1, int o1, int r2, int o2, int lnmode, int cmd)
@@ -1229,10 +1185,8 @@ static void vc_insert(int cmd)
 		sbufn_str(rep, post)
 		if (cmdo && !lbuf_len(xb))
 			lbuf_edit(xb, "\n", 0, 0);
-		lmodified = 1;
 		lbuf_edit(xb, rep->s, row, row + !cmdo);
-	} else
-		lmodified = 0;
+	}
 	sbuf_free(rep)
 	free(pref);
 	free(_post);
@@ -1762,37 +1716,6 @@ void vi(int init)
 				vc_insert(c);
 				ins:
 				vi_mod |= !xpac && xrow == orow ? 8 : 1;
-				switch (vi_insmov) {
-				case 'A':	/* ↑ */
-					vi_back(!lmodified ? c : 'i');
-					if (lmodified)
-						vi_col = vi_off2col(xb, xrow, xoff);
-					xrow--;
-					xrow = xrow < 0 ? 0 : xrow;
-					xoff = vi_col2off(xb, xrow, vi_col);
-					lmodified = 0;
-					goto _break;
-				case 'B':	/* ↓ */
-					vi_back(!lmodified ? c : 'i');
-					if (lmodified)
-						vi_col = vi_off2col(xb, xrow, xoff);
-					xrow++;
-					xoff = vi_col2off(xb, xrow, vi_col);
-					lmodified = 0;
-					goto _break;
-				case 'D':	/* ← */
-					vi_back('i');
-					xoff--;
-					xoff = xoff < 0 ? 0 : xoff;
-					vi_col = vi_off2col(xb, xrow, xoff);
-					goto _break;
-				case 'C':	/* → */
-					vi_back(*uc_chr(lbuf_get(xb, xrow), xoff+2) ? 'i' : 'A');
-					xoff++;
-					if (*uc_chr(lbuf_get(xb, xrow), xoff))
-						vi_col = vi_off2col(xb, xrow, xoff);
-					goto _break;
-				}
 				if (vi_insmov == 127) {
 					if (xrow && !(xoff > 0 && lbuf_eol(xb, xrow))) {
 						xrow--;
@@ -1805,9 +1728,6 @@ void vi(int init)
 				if (c != 'A' && c != 'C')
 					xoff--;
 				xoff = xoff < 0 ? 0 : xoff;
-				break;
-				_break:
-				vi_mod = 0;
 				break;
 			case 'J':
 				vc_join(vi_joinmode, vi_arg1 <= 1 ? 2 : vi_arg1);
@@ -2074,8 +1994,6 @@ void vi(int init)
 
 static void sighandler(int signo)
 {
-	if (signo == SIGINT)
-		return;
 	vi_back(TK_CTL('l'));
 }
 
@@ -2083,9 +2001,8 @@ static int setup_signals(void) {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
-	if (sigaction(SIGCONT, &sa, NULL)
-			|| sigaction(SIGWINCH, &sa, NULL)
-			|| sigaction(SIGINT, &sa, NULL))
+	if (sigaction(SIGCONT, &sa, NULL) ||
+			sigaction(SIGWINCH, &sa, NULL))
 		return 0;
 	return 1;
 }
@@ -2111,8 +2028,7 @@ int main(int argc, char *argv[])
 		if (argv[i][1] == '-' && !argv[i][2]) {
 			i++;
 			break;
-		} else if (!argv[i][1])
-			stdin_fd = MAX(0, open(ctermid(NULL), O_RDONLY));
+		}
 		for (j = 1; argv[i][j]; j++) {
 			if (argv[i][j] == 's')
 				xvis |= 2|4;

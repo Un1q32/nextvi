@@ -401,9 +401,7 @@ int ex_edit(const char *path, int len)
 static int ec_edit(char *loc, char *cmd, char *arg)
 {
 	char msg[128];
-	int fd = 0, len, rd = 0, cd = 0;
-	if (!cmd)
-		goto ret;
+	int fd, len, rd = 0, cd = 0;
 	if (arg[0] == '.' && arg[1] == '/')
 		cd = 2;
 	len = strlen(arg+cd);
@@ -425,9 +423,6 @@ static int ec_edit(char *loc, char *cmd, char *arg)
 		ex_bufpostfix(ex_buf, arg[0]);
 		syn_setft(ex_ft);
 	}
-	if (!loc)
-		return fd < 0 || rd;
-	ret:
 	snprintf(msg, sizeof(msg), "\"%s\" %dL [%c]",
 			*ex_path ? ex_path : "unnamed", lbuf_len(xb),
 			fd < 0 || rd ? 'f' : 'r');
@@ -1283,26 +1278,15 @@ void load_exrc(char *exrc)
 
 void ex_init(char **files, int n, char **cmds, int cmdnum)
 {
-	xbufsalloc = MAX(n + !!stdin_fd, xbufsalloc);
+	xbufsalloc = MAX(n, xbufsalloc);
 	ec_setbufsmax(NULL, NULL, "");
 	char *s = files[0] ? files[0] : "";
-	int i = n;
 	do {
-		ec_edit(!n && stdin_fd ? NULL : "", "e", s);
 		s = *(++files);
+		ec_edit("", "e", s);
 	} while (--n > 0);
-	if (stdin_fd) {
-		if (i)
-			ec_edit(NULL, "", "");
-		i = lbuf_rd(xb, STDIN_FILENO, 0, lbuf_len(xb));
-		term_done();
-		term_init();
-		lbuf_saved(xb, 1);
-		ec_edit("", NULL, ""); /* shebang patch compat */
-	}
 	xmpt = 0;
 	xvis &= ~8;
-	signal(SIGINT, SIG_DFL); /* got past init? ok remove ^c */
 	if ((s = getenv("EXINIT"))) {
 		ex_command(s)
 	} else {
