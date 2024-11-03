@@ -294,7 +294,7 @@ char *ex_read(char *msg)
 {
 	sbuf *sb;
 	int c;
-	if (!(xvis & 2) && xled) {
+	if (!(xvis & 2)) {
 		int oleft = xleft;
 		syn_blockhl = 0;
 		syn_setft("/-");
@@ -421,10 +421,11 @@ static int vi_search(int cmd, int cnt, int *row, int *off, int msg)
 	int i, dir;
 	if (cmd == '/' || cmd == '?') {
 		char sign[4] = {cmd};
-		char *kw = vi_prompt(sign, 0, &xkmap);
+		char *kw = vi_prompt(sign, NULL, &xkmap);
 		if (!kw)
 			return 1;
 		ex_krsset(kw, cmd == '/' ? +2 : -2);
+		free(kw);
 	} else if (msg)
 		ex_krsset(xregs['/'], xkwddir);
 	if (!lbuf_len(xb) || (!xkwddir || !xkwdrs))
@@ -472,13 +473,12 @@ static int vi_motionln(int *row, int cmd)
 		break;
 	case '\n':
 	case '+':
+	case 'j':
 		*row = MIN(*row + cnt, lbuf_len(xb) - 1);
 		break;
+	case 'k':
 	case '-':
 		*row = MAX(*row - cnt, 0);
-		break;
-	case '_':
-		*row = MIN(*row + cnt - 1, lbuf_len(xb) - 1);
 		break;
 	case '\'':
 		if ((mark = term_read()) <= 0)
@@ -486,12 +486,6 @@ static int vi_motionln(int *row, int cmd)
 		if (lbuf_jump(xb, mark, &mark_row, &mark_off))
 			return -1;
 		*row = mark_row;
-		break;
-	case 'j':
-		*row = MIN(*row + cnt, lbuf_len(xb) - 1);
-		break;
-	case 'k':
-		*row = MAX(*row - cnt, 0);
 		break;
 	case 'G':
 		*row = (vi_arg1 || vi_arg2) ? cnt - 1 : lbuf_len(xb) - 1;
@@ -791,27 +785,13 @@ static int vi_motion(int *row, int *off)
 				break;
 		break;
 	case '{':
-		for (i = 0; i < cnt; i++)
-			if (lbuf_paragraphbeg(xb, -1, row, off))
-				break;
-		break;
 	case '}':
-		for (i = 0; i < cnt; i++)
-			if (lbuf_paragraphbeg(xb, +1, row, off))
-				break;
-		break;
 	case '[':
-		if (term_read() != '[')
-			return -1;
-		for (i = 0; i < cnt; i++)
-			if (lbuf_sectionbeg(xb, -1, row, off))
-				break;
-		break;
 	case ']':
-		if (term_read() != ']')
-			return -1;
+		dir = mv == '{' || mv == '[' ? 1 : -1;
+		mark = mv == '[' || mv == ']' ? '\n' : '{';
 		for (i = 0; i < cnt; i++)
-			if (lbuf_sectionbeg(xb, +1, row, off))
+			if (lbuf_sectionbeg(xb, dir, row, off, mark))
 				break;
 		break;
 	case TK_CTL(']'):	/* note: this is also ^5 as per ascii */
@@ -907,7 +887,10 @@ static int vi_motion(int *row, int *off)
 		break;
 	case '\\':
 		temp_switch(1);
-		*row = xrow; *off = xoff;
+		if (vi_arg1 && xb == tempbufs[1].lb)
+			ex_command("1,$d|fd|b-2")
+		*row = xrow;
+		*off = xoff;
 		break;
 	default:
 		return 0;

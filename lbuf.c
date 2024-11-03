@@ -386,7 +386,7 @@ int lbuf_indents(struct lbuf *lb, int r)
 		return 0;
 	for (o = 0; uc_isspace(ln); o++)
 		ln += uc_len(ln);
-	return o;
+	return ln[o] ? o : o - 2;
 }
 
 static int uc_nextdir(char **s, char *beg, int dir)
@@ -458,21 +458,14 @@ int lbuf_search(struct lbuf *lb, rset *re, int dir, int *r,
 	return ln_n < 0 ? 0 : 1;
 }
 
-int lbuf_paragraphbeg(struct lbuf *lb, int dir, int *row, int *off)
+int lbuf_sectionbeg(struct lbuf *lb, int dir, int *row, int *off, int ch)
 {
-	while (*row >= 0 && *row < lbuf_len(lb) && *lbuf_get(lb, *row) == '\n')
+	if (ch == '\n')
+		while (*row >= 0 && *row < lbuf_len(lb) && *lbuf_get(lb, *row) == ch)
+			*row += dir;
+	else
 		*row += dir;
-	while (*row >= 0 && *row < lbuf_len(lb) && *lbuf_get(lb, *row) != '\n')
-		*row += dir;
-	*row = MAX(0, MIN(*row, lbuf_len(lb) - 1));
-	*off = 0;
-	return 0;
-}
-
-int lbuf_sectionbeg(struct lbuf *lb, int dir, int *row, int *off)
-{
-	*row += dir;
-	while (*row >= 0 && *row < lbuf_len(lb) && *lbuf_get(lb, *row) != '{')
+	while (*row >= 0 && *row < lbuf_len(lb) && *lbuf_get(lb, *row) != ch)
 		*row += dir;
 	*row = MAX(0, MIN(*row, lbuf_len(lb) - 1));
 	*off = 0;
