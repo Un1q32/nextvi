@@ -2014,7 +2014,8 @@ static int setup_signals(void) {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
-	if (sigaction(SIGWINCH, &sa, NULL))
+	if (sigaction(SIGWINCH, &sa, NULL)
+			|| sigaction(SIGINT, &sa, NULL))
 		return 0;
 	return 1;
 }
@@ -2040,7 +2041,8 @@ int main(int argc, char *argv[])
 		if (argv[i][1] == '-' && !argv[i][2]) {
 			i++;
 			break;
-		}
+		} else if (!argv[i][1])
+			stdin_fd = MAX(0, open(ctermid(NULL), O_RDONLY));
 		for (j = 1; argv[i][j]; j++) {
 			if (argv[i][j] == 's')
 				xvis |= 2|4;
