@@ -406,9 +406,7 @@ int ex_edit(const char *path, int len)
 static int ec_edit(char *loc, char *cmd, char *arg)
 {
 	char msg[128];
-	int fd = 0, len, rd = 0, cd = 0;
-	if (!cmd)
-		goto ret;
+	int fd, len, rd = 0, cd = 0;
 	if (arg[0] == '.' && arg[1] == '/')
 		cd = 2;
 	len = strlen(arg+cd);
@@ -430,9 +428,6 @@ static int ec_edit(char *loc, char *cmd, char *arg)
 		ex_bufpostfix(ex_buf, arg[0]);
 		syn_setft(ex_ft);
 	}
-	if (!loc)
-		return fd < 0 || rd;
-	ret:
 	snprintf(msg, sizeof(msg), "\"%s\" %dL [%c]",
 			*ex_path ? ex_path : "unnamed", lbuf_len(xb),
 			fd < 0 || rd ? 'f' : 'r');
