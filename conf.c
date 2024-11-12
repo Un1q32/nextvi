@@ -44,14 +44,13 @@ struct highlight hls[] = {
 	/* lbuf lines are *always "\n\0" terminated, for $ to work one needs to account for '\n' too */
 	/* "/" is default hl, must have at least 1 entry for fallback */
 	{"/", NULL, {14 | SYN_BD}, {1}, 0, 2},  /* <-- optional, used by hll if set */
-	/* optional, used by hlp if set */
-	{"/", NULL, {0, 9 | SYN_BGMK(10), 9 | SYN_BGMK(10)}, {1, -1, -1}, 0, 3},
+	{"/", NULL, {9 | SYN_BGMK(10)}, {0}, 0, 3}, /* <-- optional, used by hlp if set */
 	{"/", NULL, {9}, {0}, 0, 1}, /* <-- optional, used by hlw if set */
 
 	{"c", NULL, {14 | SYN_BD}, {1}, 0, 2},
 	{"c", "^.+\\\\\n$", {14}, {1}},
 	{"c", "(/\\*[!*/]*)|([^\"!/*]*\\*/)", {4 | SYN_IT}, {0}, 2},
-	{"c", NULL, {0, 9 | SYN_BGMK(12), 9 | SYN_BGMK(12)}, {1, -1, -1}, 0, 3},
+	{"c", NULL, {9 | SYN_BGMK(12)}, {0}, 0, 3},
 	{"c", NULL, {9}, {0}, 0, 1},
 	{"c", "\\<(?:signed|unsigned|char|short|u?int(?:64_t|32_t|16_t|8_t)?|\
 long|f(?:loat|64|32)|double|void|enum|union|typedef|static|extern|register|struct|\
@@ -208,6 +207,7 @@ strike|tt|xmp|doctype|h1|h2|h3|h4|h5|h6|\
 	{"html", "&[a-zA-Z0-9_]+;", {5}},
 
 	/* diff */
+	{"diff", NULL, {14 | SYN_BD}, {1}, 0, 2},
 	{"diff", "^-.*", {1}},
 	{"diff", "^\\+.*", {2}},
 	{"diff", "^@.*", {6}},
@@ -236,7 +236,7 @@ strike|tt|xmp|doctype|h1|h2|h3|h4|h5|h6|\
 
 	/* status bar (is never '\n' terminated) */
 	{"/-", "^(\".*\").*(\\[[wrf]\\]).*$", {8 | SYN_BD, 4, 1}},
-	{"/-", "^<(.+)> [^ ]+ (O[0-9]+) (C[0-9]+)$", {8 | SYN_BD, 9, 14, 11}},
+	{"/-", "^<(.+)> [^ ]+ (S[0-9]+) (O[0-9]+) (C[0-9]+)$", {8 | SYN_BD, 9, 5, 14, 11}},
 	{"/-", "^(\".*\").* ([0-9]{1,3}%) (L[0-9]+) (C[0-9]+) (B-?[0-9]+)?.*$",
 		{8 | SYN_BD, 4, 9, 4, 11, 2}},
 	{"/-", "^.*$", {8 | SYN_BD}},
