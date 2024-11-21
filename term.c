@@ -61,7 +61,7 @@ void term_commit(void)
 	term_record = 0;
 }
 
-void term_out(char *s)
+static void term_out(char *s)
 {
 	if (term_record)
 		sbufn_str(term_sbuf, s)
@@ -203,8 +203,8 @@ char *term_att(int att)
 static int cmd_make(char **argv, int *ifd, int *ofd)
 {
 	int pid;
-	int pipefds0[2];
-	int pipefds1[2];
+	int pipefds0[2] = {-1, -1};
+	int pipefds1[2] = {-1, -1};
 	if (ifd)
 		pipe(pipefds0);
 	if (ofd)
@@ -263,7 +263,6 @@ char *cmd_pipe(char *cmd, char *ibuf, int oproc)
 {
 	static char *sh[] = {"$SHELL", "sh", NULL};
 	struct pollfd fds[3];
-	sbuf *sb = NULL; /* initialize, bogus gcc12 warn */
 	char buf[512];
 	int ifd = -1, ofd = -1;
 	int slen = ibuf ? strlen(ibuf) : 0;
@@ -277,13 +276,12 @@ char *cmd_pipe(char *cmd, char *ibuf, int oproc)
 	int pid = cmd_make(argv+!xish, ibuf ? &ifd : NULL, oproc ? &ofd : NULL);
 	if (pid <= 0)
 		return NULL;
-	if (oproc)
-		sbuf_make(sb, 64)
+	sbuf_smake(sb, sizeof(buf))
 	if (!ibuf) {
 		signal(SIGINT, SIG_IGN);
 		term_done();
-	}
-	fcntl(ifd, F_SETFL, fcntl(ifd, F_GETFL, 0) | O_NONBLOCK);
+	} else if (ifd >= 0)
+		fcntl(ifd, F_SETFL, fcntl(ifd, F_GETFL, 0) | O_NONBLOCK);
 	fds[0].fd = ofd;
 	fds[0].events = POLLIN;
 	fds[1].fd = ifd;
@@ -338,6 +336,7 @@ char *cmd_pipe(char *cmd, char *ibuf, int oproc)
 		signal(SIGINT, SIG_DFL);
 	}
 	if (oproc)
-		sbufn_done(sb)
+		sbufn_sret(sb)
+	free(sb->s);
 	return NULL;
 }

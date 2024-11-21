@@ -210,7 +210,7 @@ int lbuf_opt(struct lbuf *lb, char *buf, int pos, int n_del)
 int lbuf_rd(struct lbuf *lbuf, int fd, int beg, int end)
 {
 	long nr;
-	sbuf *sb; sbuf_make(sb, 1000000)
+	sbuf_smake(sb, 1000000)
 	while ((nr = read(fd, sb->s + sb->s_n, sb->s_sz - sb->s_n)) > 0) {
 		if (sb->s_n + nr >= sb->s_sz) {
 			int newsz = NEXTSZ((unsigned int)sb->s_sz, (unsigned int)sb->s_sz + 1);
@@ -223,7 +223,7 @@ int lbuf_rd(struct lbuf *lbuf, int fd, int beg, int end)
 	}
 	sbuf_null(sb)
 	lbuf_edit(lbuf, sb->s, beg, end);
-	sbuf_free(sb)
+	free(sb->s);
 	return nr != 0;
 }
 
@@ -262,11 +262,11 @@ void lbuf_edit(struct lbuf *lb, char *buf, int beg, int end)
 
 char *lbuf_cp(struct lbuf *lb, int beg, int end)
 {
-	sbuf *sb; sbuf_make(sb, 64)
+	sbuf_smake(sb, 64)
 	for (int i = beg; i < end; i++)
 		if (i < lb->ln_n)
 			sbuf_str(sb, lb->ln[i])
-	sbufn_done(sb)
+	sbufn_sret(sb)
 }
 
 char *lbuf_get(struct lbuf *lb, int pos)
@@ -386,7 +386,7 @@ int lbuf_indents(struct lbuf *lb, int r)
 		return 0;
 	for (o = 0; uc_isspace(ln); o++)
 		ln += uc_len(ln);
-	return ln[o] ? o : o - 2;
+	return *ln ? o : o - 2;
 }
 
 static int uc_nextdir(char **s, char *beg, int dir)
@@ -472,15 +472,6 @@ int lbuf_sectionbeg(struct lbuf *lb, int dir, int *row, int *off, int ch)
 	return 0;
 }
 
-static int lbuf_lnnext(struct lbuf *lb, int dir, int *r, int *o)
-{
-	int off = *o + dir;
-	if (off < 0 || !lbuf_get(lb, *r) || off >= uc_slen(lbuf_get(lb, *r)))
-		return 1;
-	*o = off;
-	return 0;
-}
-
 int lbuf_eol(struct lbuf *lb, int row)
 {
 	int len = 0;
@@ -491,29 +482,35 @@ int lbuf_eol(struct lbuf *lb, int row)
 
 static int lbuf_next(struct lbuf *lb, int dir, int *r, int *o)
 {
-	if (dir < 0 && *r >= lbuf_len(lb))
-		*r = MAX(0, lbuf_len(lb) - 1);
-	if (lbuf_lnnext(lb, dir, r, o)) {
-		if (!lbuf_get(lb, *r + dir))
+	int odir = dir > 0 ? 1 : -1;
+	int len, off = *o + odir;
+	if (lbuf_get(lb, *r))
+		len = ren_position(lbuf_get(lb, *r))->n;
+	else
+		return -1;
+	if (off < 0 || off >= len) {
+		if (dir % 2 == 0 || !lbuf_get(lb, *r + odir))
 			return -1;
-		*r += dir;
-		*o = dir > 0 ? 0 : lbuf_eol(lb, *r);
-		return 0;
-	}
+		*r += odir;
+		if (odir > 0) {
+			ren_position(lbuf_get(lb, *r));
+			*o = 0;
+		} else
+			*o = lbuf_eol(lb, *r);
+	} else
+		*o = off;
 	return 0;
 }
-
-#define lbuf_chr(lb, r, c) uc_chr(lbuf_get(lb, r), c)
 
 /* move to the last character of the word */
 static int lbuf_wordlast(struct lbuf *lb, int kind, int dir, int *row, int *off)
 {
-	if (!kind || !(uc_kind(lbuf_chr(lb, *row, *off)) & kind))
+	if (!kind || !(uc_kind(rstate->chrs[*off]) & kind))
 		return 0;
-	while (uc_kind(lbuf_chr(lb, *row, *off)) & kind)
+	while (uc_kind(rstate->chrs[*off]) & kind)
 		if (lbuf_next(lb, dir, row, off))
 			return 1;
-	if (!(uc_kind(lbuf_chr(lb, *row, *off)) & kind))
+	if (!(uc_kind(rstate->chrs[*off]) & kind))
 		lbuf_next(lb, -dir, row, off);
 	return 0;
 }
@@ -521,12 +518,15 @@ static int lbuf_wordlast(struct lbuf *lb, int kind, int dir, int *row, int *off)
 int lbuf_wordbeg(struct lbuf *lb, int big, int dir, int *row, int *off)
 {
 	int nl;
-	lbuf_wordlast(lb, big ? 3 : uc_kind(lbuf_chr(lb, *row, *off)), dir, row, off);
-	nl = *lbuf_chr(lb, *row, *off) == '\n';
+	if (!lbuf_get(lb, *row))
+		return 1;
+	ren_state *r = ren_position(lbuf_get(lb, *row));
+	lbuf_wordlast(lb, big ? 3 : uc_kind(r->chrs[*off]), dir, row, off);
+	nl = *rstate->chrs[*off] == '\n';
 	if (lbuf_next(lb, dir, row, off))
 		return 1;
-	while (uc_isspace(lbuf_chr(lb, *row, *off))) {
-		nl += *lbuf_chr(lb, *row, *off) == '\n';
+	while (uc_isspace(rstate->chrs[*off])) {
+		nl += *rstate->chrs[*off] == '\n';
 		if (nl == 2)
 			return 0;
 		if (lbuf_next(lb, dir, row, off))
@@ -538,24 +538,26 @@ int lbuf_wordbeg(struct lbuf *lb, int big, int dir, int *row, int *off)
 int lbuf_wordend(struct lbuf *lb, int big, int dir, int *row, int *off)
 {
 	int nl = 0;
-	if (!uc_isspace(lbuf_chr(lb, *row, *off))) {
+	if (!lbuf_get(lb, *row))
+		return 1;
+	ren_state *r = ren_position(lbuf_get(lb, *row));
+	if (!uc_isspace(r->chrs[*off])) {
 		if (lbuf_next(lb, dir, row, off))
 			return 1;
-		nl = dir < 0 && *lbuf_chr(lb, *row, *off) == '\n';
+		nl = dir < 0 && *rstate->chrs[*off] == '\n';
 	}
-	nl += dir > 0 && *lbuf_chr(lb, *row, *off) == '\n';
-	while (uc_isspace(lbuf_chr(lb, *row, *off))) {
+	nl += dir > 0 && *rstate->chrs[*off] == '\n';
+	while (uc_isspace(rstate->chrs[*off])) {
 		if (lbuf_next(lb, dir, row, off))
 			return 1;
-		nl += *lbuf_chr(lb, *row, *off) == '\n';
+		nl += *rstate->chrs[*off] == '\n';
 		if (nl == 2) {
 			if (dir < 0)
 				lbuf_next(lb, -dir, row, off);
 			return 0;
 		}
 	}
-	if (lbuf_wordlast(lb, big ? 3 : uc_kind(lbuf_chr(lb, *row, *off)), dir, row, off))
-		return 1;
+	lbuf_wordlast(lb, big ? 3 : uc_kind(rstate->chrs[*off]), dir, row, off);
 	return 0;
 }
 
@@ -564,16 +566,16 @@ int lbuf_pair(struct lbuf *lb, int *row, int *off)
 {
 	int r = *row, o = *off;
 	char *pairs = "()[]{}";
-	int c;			/* parenthesis character */
-	int p;			/* index for pairs[] */
-	int dep = 1;		/* parenthesis depth */
-	while ((c = (unsigned char) lbuf_chr(lb, r, o)[0]) && !strchr(pairs, c))
-		o++;
-	if (!c)
+	int p, c, dep = 1;
+	if (!lbuf_get(lb, r))
 		return 1;
-	p = strchr(pairs, c) - pairs;
+	ren_state *rs = ren_position(lbuf_get(lb, r));
+	for (; o < rs->n-1 && !memchr(pairs, *rs->chrs[o], 6); o++);
+	if (!memchr(pairs, *rs->chrs[o], 6))
+		return 1;
+	p = (char*)memchr(pairs, *rs->chrs[o], 6) - pairs;
 	while (!lbuf_next(lb, (p & 1) ? -1 : +1, &r, &o)) {
-		int c = (unsigned char) lbuf_chr(lb, r, o)[0];
+		c = *rstate->chrs[o];
 		if (c == pairs[p ^ 1])
 			dep--;
 		if (c == pairs[p])

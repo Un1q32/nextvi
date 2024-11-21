@@ -77,23 +77,32 @@ void dir_init(void)
 	dir_rsctx = rset_make(i, ctx, 0);
 }
 
-static ren_state rstates[1];
-ren_state *rstate = &rstates[0];
-
-void ren_done(void)
+static int ren_cwid(char *s, int pos)
 {
-	free(rstate->col);
-	free(rstate->pos);
-	free(rstate->chrs);
+	if (s[0] == '\t')
+		return xtabspc - (pos & (xtabspc-1));
+	if (s[0] == '\n')
+		return 1;
+	int c, l; uc_code(c, s, l)
+	for (int i = 0; i < phlen; i++)
+		if (c >= ph[i].cp[0] && c <= ph[i].cp[1] && l == ph[i].l)
+			return ph[i].wid;
+	return uc_wid(c);
 }
+
+static ren_state rstates[2];
+ren_state *rstate = &rstates[0];
 
 /* specify the screen position of the characters in s */
 ren_state *ren_position(char *s)
 {
 	if (rstate->s == s)
 		return rstate;
-	else
-		ren_done();
+	else {
+		free(rstate->col);
+		free(rstate->pos);
+		free(rstate->chrs);
+	}
 	int n, i, c = 0, *off, *pos, *col;
 	int cpos = 0, wid;
 	char **chrs = uc_chop(s, &n);
@@ -160,12 +169,11 @@ int ren_cursor(char *s, int p)
 	if (!s)
 		return 0;
 	ren_state *r = ren_position(s);
-	int i, n = r->n;
-	if (!n)
+	if (r->cmax < 0)
 		return 0;
-	if (p >= r->pos[n - 1])
-		p = r->pos[r->col[r->cmax - (*r->chrs[n-1] == '\n')]];
-	i = r->col[p];
+	if (p >= r->cmax)
+		p = r->cmax - (r->cmax && *r->chrs[r->col[r->cmax]] == '\n');
+	int i = r->col[p];
 	return r->pos[i] + r->wid[i] - 1;
 }
 
@@ -189,19 +197,6 @@ int ren_next(char *s, int p, int dir)
 	if (r->wid[i] > 1 && dir > 0)
 		return r->pos[i] + r->wid[i];
 	return r->pos[i] + dir;
-}
-
-int ren_cwid(char *s, int pos)
-{
-	if (s[0] == '\t')
-		return xtabspc - (pos & (xtabspc-1));
-	if (s[0] == '\n')
-		return 1;
-	int c, l; uc_code(c, s, l)
-	for (int i = 0; i < phlen; i++)
-		if (c >= ph[i].cp[0] && c <= ph[i].cp[1] && l == ph[i].l)
-			return ph[i].wid;
-	return uc_wid(c);
 }
 
 char *ren_translate(char *s, char *ln)

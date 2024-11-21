@@ -16,8 +16,7 @@ static int search(const char *pattern, int l)
 	if (!*pattern)
 		return 0;
 	sbuf_cut(suggestsb, 0)
-	sbuf *sylsb;
-	sbuf_make(sylsb, 1024)
+	sbuf_smake(sylsb, 1024)
 	char *part = strstr(acsb->s, pattern);
 	while (part) {
 		char *part1 = part;
@@ -33,7 +32,7 @@ static int search(const char *pattern, int l)
 		part = strstr(part+len, pattern);
 	}
 	sbuf_mem(suggestsb, sylsb->s, sylsb->s_n)
-	sbuf_free(sylsb)
+	free(sylsb->s);
 	sbuf_set(suggestsb, '\0', 4)
 	suggestsb->s_n -= 4;
 	return suggestsb->s_n;
@@ -45,12 +44,11 @@ static void file_index(struct lbuf *buf)
 	int len, sidx, grp = xgrp;
 	char **ss = lbuf_buf(buf);
 	int ln_n = lbuf_len(buf), n;
-	sbuf *ibuf;
 	rset *rs = rset_smake(xacreg ? xacreg->s : reg, xic ? REG_ICASE : 0);
 	if (!rs)
 		return;
 	int subs[rs->grpcnt * 2];
-	sbuf_make(ibuf, 1024)
+	sbuf_smake(ibuf, 1024)
 	for (n = 1; n <= acsb->s_n; n++)
 		if (acsb->s[n - 1] == '\n')
 			sbuf_mem(ibuf, &n, (int)sizeof(n))
@@ -81,7 +79,7 @@ static void file_index(struct lbuf *buf)
 		}
 	}
 	sbuf_null(acsb)
-	sbuf_free(ibuf)
+	free(ibuf->s);
 	rset_free(rs);
 }
 
@@ -101,26 +99,16 @@ int led_pos(char *s, int pos)
 	return pos - xleft;
 }
 
-static int led_offdir(char **chrs, int *pos, int i)
-{
-	if (pos[i] + ren_cwid(chrs[i], pos[i]) == pos[i + 1])
-		return +1;
-	if (pos[i + 1] + ren_cwid(chrs[i + 1], pos[i + 1]) == pos[i])
-		return -1;
-	return 0;
-}
-
 #define print_ch1(out) sbuf_mem(out, chrs[o], l)
 #define print_ch2(out) sbuf_mem(out, *chrs[o] == ' ' ? "_" : chrs[o], l)
 
 #define hid_ch1(out) sbuf_set(out, ' ', i - l)
 #define hid_ch2(out) \
-int pre = out->s_n; \
 sbuf_set(out, *chrs[o] == '\n' ? '\\' : '-', i - l) \
 if (ctx > 0 && *chrs[o] == '\t') \
 	out->s[out->s_n-1] = '>'; \
 else if (*chrs[o] == '\t') \
-	out->s[pre] = '<'; \
+	out->s[out->s_n - (i - l)] = '<'; \
 
 #define led_out(out, n) \
 { \
@@ -146,11 +134,12 @@ for (i = 0; i < cterm;) { \
 			if (att_new != att_old) \
 				sbuf_str(out, term_att(0)) \
 			sbuf_chr(out, ' ') \
-		} \
-		i++; \
+			i++; \
+		} else \
+			break; \
 	} \
 	att_old = att_new; \
-} sbufn_str(out, term_att(0)) } \
+} } \
 
 /* render and highlight a line */
 void led_render(char *s0, int cbeg, int cend)
@@ -158,7 +147,6 @@ void led_render(char *s0, int cbeg, int cend)
 	if (!xled)
 		return;
 	ren_state *r = ren_position(s0);
-	sbuf *bsb;
 	int j, c, l, i, o, n = r->n;
 	int att_old = 0, atti = 0, cterm = cend - cbeg;
 	char *bound = NULL;
@@ -180,12 +168,12 @@ void led_render(char *s0, int cbeg, int cend)
 	if (r->cmax > cterm || cbeg) {
 		i = ctx < 0 ? cterm-1 : 0;
 		o = off[i];
-		if (cbeg && r->wid[o] > 1)
+		if (o >= 0 && cbeg && r->pos[o] < cbeg)
 			while (off[i] == o)
 				off[ctx < 0 ? i-- : i++] = -1;
 		i = ctx < 0 ? 0 : cterm-1;
 		o = off[i];
-		if (r->cmax > cterm && r->wid[o] > 1)
+		if (o >= 0 && r->cmax > cterm && r->pos[o] + r->wid[o] > cend)
 			while (off[i] == o)
 				off[ctx < 0 ? i++ : i--] = -1;
 		for (i = 0, c = 0; i < cterm;) {
@@ -206,43 +194,56 @@ void led_render(char *s0, int cbeg, int cend)
 			att[j + 1] = key0;
 			stt[j + 1] = i;
 		}
-		sbuf_make(bsb, cterm*4);
+		sbuf_smake(bsb, cterm*4);
 		for (i = 0; i < c; i++) {
 			ctt[stt[i]] = i;
+			stt[i] = att[i];
 			sbuf_mem(bsb, chrs[att[i]], uc_len(chrs[att[i]]))
 		}
 		sbuf_set(bsb, '\0', 4)
 		bound = bsb->s;
 	}
-	memset(att, 0, MIN(n, cterm) * sizeof(att[0]));
+	memset(att, 0, MIN(n, cterm+1) * sizeof(att[0]));
 	if (xhl)
 		syn_highlight(att, bound ? bound : s0, MIN(n, cterm));
-	if (bound)
-		sbuf_free(bsb);
-	if (led_attsb && led_attsb->s_n && xhl) {
-		for (c = 0, i = 0; i < cterm;) {
-			if ((o = off[i++]) < 0)
+	free(bound);
+	if (led_attsb && xhl) {
+		led_att *p = (led_att*)led_attsb->s;
+		for (; (char*)p < &led_attsb->s[led_attsb->s_n]; p++) {
+			if (p->s != s0)
 				continue;
-			void **p = (void**)led_attsb->s;
-			for (; p < (void**)&led_attsb->s[led_attsb->s_n]; p+=2) {
-				if (*(char**)p == chrs[o]) {
-					j = bound ? ctt[c] : o;
-					att[j] = syn_merge(*((int**)p)[1], att[j]);
-					break;
+			if (!bound)
+				att[p->off] = syn_merge(p->att, att[p->off]);
+			else if (c && stt[0] <= p->off && stt[c-1] >= p->off) {
+				i = p->off - stt[0];
+				if (i < c && stt[i] == p->off) {
+					att[i] = syn_merge(p->att, att[i]);
+					continue; /* text not reordered */
+				}
+				for (l = 0, j = c - 1; l <= j;) {
+					i = l + (j - l) / 2;
+					if (stt[i] == p->off) {
+						att[i] = syn_merge(p->att, att[i]);
+						break;
+					} else if (stt[i] < p->off)
+						l = i + 1;
+					else
+						j = i - 1;
 				}
 			}
-			for (c++; off[i] == o; i++);
 		}
 	}
 	if (xhlr && xhl) {
-		for (c = 0, i = 0; i < cterm;) {
+		for (l = 0, i = 0; i < cterm;) {
 			o = off[i++];
 			if (o < 0)
 				continue;
-			for (c++; off[i] == o; i++);
-			if (led_offdir(chrs, r->pos, o) >= 0)
+			for (l++; off[i] == o; i++);
+			if (o+1 >= r->n || r->pos[o] + r->wid[o] == r->pos[o + 1])
 				continue;
-			j = bound ? ctt[c-1] : o;
+			if (r->pos[o + 1] + r->wid[o + 1] != r->pos[o])
+				continue;
+			j = bound ? ctt[l-1] : o;
 			att[j] = syn_merge(conf_hlrev, att[j]);
 			att[j+1] = syn_merge(conf_hlrev, att[j+1]);
 		}
@@ -252,6 +253,7 @@ void led_render(char *s0, int cbeg, int cend)
 		led_out(term_sbuf, 2)
 	else
 		led_out(term_sbuf, 1)
+	sbufn_str(term_sbuf, term_att(0))
 }
 
 static int led_lastchar(char *s)
@@ -362,12 +364,12 @@ static void led_redraw(char *cs, int r, int orow, int lsh)
 			term_kill();
 		}
 		if (r >= orow-xtop && r < xrow-xtop) {
-			sbuf *cb; sbuf_make(cb, 128)
+			sbuf_smake(cb, 128)
 			nl = dstrlen(cs, '\n');
 			sbuf_mem(cb, cs, nl+!!cs[nl])
 			sbuf_set(cb, '\0', 4)
 			led_recrender(cb->s, r, vi_lncol, xleft, xleft + xcols - vi_lncol)
-			sbuf_free(cb)
+			free(cb->s);
 			cs += nl+!!cs[nl];
 			continue;
 		}
@@ -617,7 +619,8 @@ _leave:
 char *led_prompt(char *pref, char *post, char *insert, int *kmap)
 {
 	int key, n;
-	sbuf *sb; sbufn_make(sb, xcols)
+	sbuf_smake(sb, xcols)
+	sbuf_null(sb)
 	if (pref)
 		sbufn_str(sb, pref)
 	n = sb->s_n;
@@ -633,9 +636,9 @@ char *led_prompt(char *pref, char *post, char *insert, int *kmap)
 			temp_write(0, sb->s + n);
 		}
 		sbuf_str(sb, post)
-		sbufn_done(sb)
+		sbufn_sret(sb)
 	}
-	sbuf_free(sb)
+	free(sb->s);
 	return NULL;
 }
 

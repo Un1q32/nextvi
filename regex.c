@@ -575,7 +575,7 @@ rset *rset_make(int n, char **re, int flg)
 {
 	int i, c = 0;
 	rset *rs = emalloc(sizeof(*rs));
-	sbuf *sb; sbuf_make(sb, 1024)
+	sbuf_smake(sb, 1024)
 	rs->grp = emalloc((n + 1) * sizeof(rs->grp[0]));
 	rs->setgrpcnt = emalloc((n + 1) * sizeof(rs->setgrpcnt[0]));
 	rs->n = n;
@@ -608,7 +608,7 @@ rset *rset_make(int n, char **re, int flg)
 		rset_free(rs);
 		rs = NULL;
 	}
-	sbuf_free(sb)
+	free(sb->s);
 	return rs;
 }
 
@@ -646,7 +646,7 @@ char *re_read(char **src)
 	int delim = (unsigned char) *s++;
 	if (!delim)
 		return NULL;
-	sbuf *sb; sbuf_make(sb, 256)
+	sbuf_smake(sb, 256)
 	while (*s && *s != delim) {
 		if (s[0] == '\\' && s[1])
 			if (*(++s) != delim)
@@ -654,5 +654,5 @@ char *re_read(char **src)
 		sbuf_chr(sb, (unsigned char) *s++)
 	}
 	*src = *s ? s + 1 : s;
-	sbufn_done(sb)
+	sbufn_sret(sb)
 }

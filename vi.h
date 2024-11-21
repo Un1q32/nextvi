@@ -54,9 +54,9 @@ typedef struct sbuf {
 	free(s); \
 } \
 
-#define sbuf_make(sb, newsz) \
+#define _sbuf_make(sb, newsz, alloc) \
 { \
-	sb = emalloc(sizeof(*sb)); \
+	alloc; \
 	sb->s_sz = newsz; \
 	sb->s = emalloc(newsz); \
 	sb->s_n = 0; \
@@ -75,6 +75,8 @@ if (sb->s_n + len >= sb->s_sz) \
 mem##func(sb->s + sb->s_n, x, len); \
 sb->s_n += len; \
 
+#define sbuf_smake(sb, newsz) sbuf _##sb, *sb = &_##sb; _sbuf_make(sb, newsz,)
+#define sbuf_make(sb, newsz) { _sbuf_make(sb, newsz, sb = emalloc(sizeof(*sb))) }
 #define sbuf_free(sb) { free(sb->s); free(sb); }
 #define sbuf_set(sb, ch, len) { sbuf_(sb, ch, len, set) }
 #define sbuf_mem(sb, s, len) { sbuf_(sb, s, len, cpy) }
@@ -82,13 +84,13 @@ sb->s_n += len; \
 #define sbuf_cut(sb, len) { sb->s_n = len; }
 /* sbuf functions that NULL terminate strings */
 #define sbuf_null(sb) { sb->s[sb->s_n] = '\0'; }
-#define sbufn_done(sb) { sbuf_set(sb, '\0', 4) char *s = sb->s; free(sb); return s; }
 #define sbufn_make(sb, newsz) { sbuf_make(sb, newsz) sbuf_null(sb) }
 #define sbufn_set(sb, ch, len) { sbuf_set(sb, ch, len) sbuf_null(sb) }
 #define sbufn_mem(sb, s, len) { sbuf_mem(sb, s, len) sbuf_null(sb) }
 #define sbufn_str(sb, s) { sbuf_str(sb, s) sbuf_null(sb) }
 #define sbufn_cut(sb, len) { sbuf_cut(sb, len) sbuf_null(sb) }
 #define sbufn_chr(sb, c) { sbuf_chr(sb, c) sbuf_null(sb) }
+#define sbufn_sret(sb) { sbuf_set(sb, '\0', 4) return sb->s; }
 
 /* regex.c regular expression sets */
 #define REG_ICASE	0x01
@@ -177,7 +179,6 @@ typedef struct {
 	int ctx;
 } ren_state;
 extern ren_state *rstate;
-void ren_done(void);
 ren_state *ren_position(char *s);
 int ren_next(char *s, int p, int dir);
 int ren_eol(char *s, int dir);
@@ -185,9 +186,7 @@ int ren_pos(char *s, int off);
 int ren_cursor(char *s, int pos);
 int ren_noeol(char *s, int p);
 int ren_off(char *s, int p);
-int ren_region(char *s, int c1, int c2, int *l1, int *l2, int closed);
 char *ren_translate(char *s, char *ln);
-int ren_cwid(char *s, int pos);
 /* text direction */
 int dir_context(char *s);
 void dir_init(void);
@@ -264,13 +263,10 @@ void term_init(void);
 void term_done(void);
 void term_clean(void);
 void term_suspend(void);
-void term_out(char *s);
 void term_chr(int ch);
 void term_pos(int r, int c);
 void term_kill(void);
 void term_room(int n);
-int term_rows(void);
-int term_cols(void);
 int term_read(void);
 void term_commit(void);
 char *term_att(int att);
@@ -302,6 +298,11 @@ char *xgetenv(char* q[]);
 #define TK_INT(c)	((c) <= 0 || (c) == TK_ESC || (c) == TK_CTL('c'))
 
 /* led.c line-oriented input and output */
+typedef struct {
+	char *s;
+	int off;
+	int att;
+} led_att;
 extern sbuf *led_attsb;
 char *led_prompt(char *pref, char *post, char *insert, int *kmap);
 sbuf *led_input(char *pref, char **post, int row, int lsh);
@@ -361,7 +362,6 @@ extern struct buf tempbufs[2];
 void temp_open(int i, char *name, char *ft);
 void temp_switch(int i);
 void temp_write(int i, char *str);
-void temp_done(int i);
 void temp_pos(int i, int row, int off, int top);
 int ex_exec(const char *ln);
 #define ex_command(ln) { ex_exec(ln); vi_regputraw(':', ln, 0, 0); }
