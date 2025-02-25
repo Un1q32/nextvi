@@ -418,7 +418,7 @@ static int ec_edit(char *loc, char *cmd, char *arg)
 	}
 	if (access(arg, F_OK) == 0 && access(arg, W_OK) == -1)
 		ex_buf->readonly = 1;
-	readfile(rd =)
+	readfile(rd =, cd == 3)
 	if (cd == 3 || (!rd && fd >= 0)) {
 		ex_bufpostfix(ex_buf, arg[0]);
 		syn_setft(ex_ft);
