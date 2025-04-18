@@ -1,21 +1,3 @@
-/*
- * NEXTVI Editor
- *
- * Copyright (C) 2015-2019 Ali Gholami Rudi <ali at rudi dot ir>
- * Copyright (C) 2020-2025 Kyryl Melekhin <k dot melekhin at gmail dot com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
 #include <ctype.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -1672,38 +1654,7 @@ void vi(int init)
 				vc_insert(c);
 				ins:
 				vi_mod |= !xpac && xrow == orow ? 8 : 1;
-				switch (vi_insmov) {
-				case 'A':	/* ↑ */
-					term_back(!lmodified ? c : 'i');
-					if (lmodified)
-						vi_col = vi_off2col(xb, xrow, xoff);
-					xrow--;
-					xrow = xrow < 0 ? 0 : xrow;
-					xoff = vi_col2off(xb, xrow, vi_col);
-					lmodified = 0;
-					goto _break;
-				case 'B':	/* ↓ */
-					term_back(!lmodified ? c : 'i');
-					if (lmodified)
-						vi_col = vi_off2col(xb, xrow, xoff);
-					xrow++;
-					xoff = vi_col2off(xb, xrow, vi_col);
-					lmodified = 0;
-					goto _break;
-				case 'D':	/* ← */
-					term_back('i');
-					xoff--;
-					xoff = xoff < 0 ? 0 : xoff;
-					vi_col = vi_off2col(xb, xrow, xoff);
-					goto _break;
-				case 'C':	/* → */
-					term_back(*uc_chr(lbuf_get(xb, xrow), xoff+2) ? 'i' : 'A');
-					xoff++;
-					if (*uc_chr(lbuf_get(xb, xrow), xoff))
-						vi_col = vi_off2col(xb, xrow, xoff);
-					goto _break;
-				}
-				if (vi_insmov == 127) {
+				if (vi_insmov == 127 || vi_insmov == TK_CTL('h')) {
 					if (xrow && !(xoff > 0 && lbuf_eol(xb, xrow))) {
 						xrow--;
 						vc_join(0, 2);
