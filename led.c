@@ -276,7 +276,7 @@ static int led_lastword(char *s)
 	return r - s;
 }
 
-static void led_printparts(sbuf *sb, int pre, int ps, char *post, int ai_max)
+static void led_printparts(sbuf *sb, int pre, int ps, char *post, int ai_max, int print)
 {
 	if (!xled) {
 		sbuf_null(sb)
@@ -302,8 +302,10 @@ static void led_printparts(sbuf *sb, int pre, int ps, char *post, int ai_max)
 		xleft = pos - xcols / 2;
 	if (pos < xleft)
 		xleft = pos < xcols ? 0 : pos - xcols / 2;
-	syn_blockhl = 0;
-	led_crender(r->s, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	if (print) {
+		syn_blockhl = 0;
+		led_crender(sb->s+ps, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	}
 	term_pos(-1, led_pos(r->s, pos) + vi_lncol);
 	sbufn_cut(sb, psn)
 }
@@ -388,7 +390,8 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int ai_max,
 	int c, i, lsug = 0, sug_pt = -1;
 	char *cs, *sug = NULL, *_sug = NULL;
 	while (1) {
-		led_printparts(sb, pre, ps, post, ai_max);
+		led_printparts(sb, pre, ps, post, ai_max, !memchr("ABCD", vi_insmov, 4));
+		vi_insmov = -1;
 		len = sb->s_n;
 		c = term_read();
 		switch (c) {
@@ -580,6 +583,20 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int ai_max,
 			else
 				led_redraw(sb->s, 0, orow, lsh);
 			continue;
+		case '\033':;	/* Arrow keys */
+			char cbuf[1];
+			cbuf[0] = '\0';
+			int fl = fcntl(STDIN_FILENO, F_GETFL);
+			fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
+			read(STDIN_FILENO, cbuf, 1);
+			if (*cbuf == '[') {
+				read(STDIN_FILENO, cbuf, 1);
+				vi_insmov = *cbuf;
+				fcntl(STDIN_FILENO, F_SETFL, fl);
+				goto _leave;
+			}
+			fcntl(STDIN_FILENO, F_SETFL, fl);
+			goto leave;
 		case TK_CTL('o'):;
 			preserve(int, xvis, xvis & 4 ? xvis & ~4 : xvis | 4)
 			syn_setft(ex_ft);
@@ -602,6 +619,7 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int ai_max,
 	}
 leave:
 	vi_insmov = c;
+_leave:
 	*key = c;
 }
 
@@ -648,7 +666,7 @@ sbuf *led_input(char *pref, char **post, int row, int lsh)
 			return sb;
 		}
 		sbufn_chr(sb, key)
-		led_printparts(sb, -1, ps, "", 0);
+		led_printparts(sb, -1, ps, "", 0, 1);
 		term_chr('\n');
 		term_room(1);
 		xrow++;
