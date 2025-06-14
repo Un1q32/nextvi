@@ -47,11 +47,11 @@ typedef struct sbuf {
 
 #define sbuf_extend(sb, newsz) \
 { \
-	char *s = sb->s; \
+	char *__s_ = sb->s; \
 	sb->s_sz = newsz; \
 	sb->s = emalloc(sb->s_sz); \
-	memcpy(sb->s, s, sb->s_n); \
-	free(s); \
+	memcpy(sb->s, __s_, sb->s_n); \
+	free(__s_); \
 } \
 
 #define _sbuf_make(sb, newsz, alloc) \
@@ -101,8 +101,9 @@ typedef struct {
 	char *rm_so;
 	char *rm_eo;
 } regmatch_t;
+typedef struct rcode rcode;
 struct rcode {
-	struct rcode **la;	/* lookahead expressions */
+	rcode **la;		/* lookahead expressions */
 	int laidx;		/* lookahead index */
 	int unilen;		/* number of integers in insts */
 	int len;		/* number of atoms/instructions */
@@ -113,7 +114,6 @@ struct rcode {
 	int flg;		/* stored flags */
 	int insts[];		/* re code */
 };
-typedef struct rcode rcode;
 /* regular expression set */
 typedef struct {
 	rcode *regex;		/* the combined regular expression */
@@ -135,10 +135,10 @@ char *re_read(char **src);
 struct lopt {
 	char *ins;		/* inserted text */
 	char *del;		/* deleted text */
+	int *mark, *mark_off;	/* saved marks */
 	int pos, n_ins, n_del;	/* modification location */
 	int pos_off;		/* cursor line offset */
 	int seq;		/* operation number */
-	int *mark, *mark_off;	/* saved marks */
 };
 struct linfo {
 	int len;
@@ -438,16 +438,16 @@ extern struct highlight hls[];
 extern int hlslen;
 /* direction context patterns; specifies the direction of a whole line */
 struct dircontext {
-	int dir;
 	char *pat;
+	int dir;
 };
 extern struct dircontext dctxs[];
 extern int dctxlen;
 /* direction marks; the direction of a few words in a line */
 struct dirmark {
+	char *pat;
 	int ctx;	/* the direction context for this mark; 0 means any */
 	int dir[8];	/* the direction of a matched text group */
-	char *pat;
 };
 extern struct dirmark dmarks[];
 extern int dmarkslen;

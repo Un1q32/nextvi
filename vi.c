@@ -1031,11 +1031,15 @@ static void vi_case(int r1, int o1, int r2, int o2, int lnmode, int cmd)
 
 static void vi_pipe(int r1, int r2)
 {
-	char region[100];
-	char *p = itoa(r1+1, region);
 	int mlen;
-	*p++ = ',';
-	p = itoa(r2+1, p);
+	char region[100], *p = region;
+	if (r1 == r2 && !vi_arg)
+		*p++ = '.';
+	else {
+		p = itoa(r1+1, region);
+		*p++ = ',';
+		p = itoa(r2+1, p);
+	}
 	*p++ = '!';
 	*p = '\0';
 	char *cmd = vi_enprompt(":", region, &mlen);
@@ -1614,10 +1618,6 @@ void vi(int init)
 					ex_command(ln + n)
 				free(ln);
 				break;
-			case 'q':
-				if (term_read() == 'q')
-					xquit = texec == '&' ? -1 : 1;
-				continue;
 			case 'c':
 			case 'd':
 				k = term_read();
@@ -1732,10 +1732,6 @@ void vi(int init)
 			case 'z':
 				k = term_read();
 				switch (k) {
-				case 'z':
-					xquit = 2 * (texec == '&' ? -1 : 1);
-					term_push("\n", 1);
-					break;
 				case '\n':
 					xtop = vi_arg ? vi_arg : xrow;
 					break;
@@ -1832,9 +1828,18 @@ void vi(int init)
 				ex_exec("reg");
 				break;
 			case 'Z':
-				if (term_read() == 'Z')
+				k = term_read();
+				if (k == 'Z')
 					ex_exec("x");
-				break;
+				else if (k == 'z') {
+					xquit = texec == '&' ? -1 : 1;
+					if (xgrec > 1) {
+						term_push("\n", 1);
+						break;
+					}
+				} else if (!TK_INT(k))
+					xquit = texec == '&' ? -2 : 2;
+				continue;
 			case '.':
 				vc_repeat();
 				break;
@@ -2026,12 +2031,11 @@ int main(int argc, char *argv[])
 	else
 		vi(1);
 	term_done();
-	if (xvis & 4)
-		return EXIT_SUCCESS;
-	if (abs(xquit) == 2) {
+	if (abs(xquit) == 2)
+		term_clean();
+	else if (!(xvis & 4)) {
 		term_pos(xrows - !vi_status, 0);
 		term_kill();
-	} else
-		term_clean();
+	}
 	return EXIT_SUCCESS;
 }

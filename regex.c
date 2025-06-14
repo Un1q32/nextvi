@@ -7,7 +7,7 @@ static int isword(const char *s)
 enum
 {
 	/* Instructions which consume input bytes */
-	CHAR = 1,
+	CHAR,
 	CLASS,
 	MATCH,
 	ANY,
@@ -17,7 +17,6 @@ enum
 	BOL,
 	EOL,
 	LOOKAROUND,
-	_PAD,
 	/* Other (special) instructions */
 	SAVE,
 	/* Instructions which take relative offset as arg */
@@ -137,7 +136,7 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 					EMIT(PC++, prog->laidx);
 					bal = 1;
 					s = ++re;
-					la_static = *s == '^';
+					la_static = !(flg & REG_ICASE) && *s == '^';
 					while (1) {
 						if (!*s)
 							return -1;
@@ -173,7 +172,7 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 							if (sz < 0)
 								return -1;
 							prog->la[prog->laidx] = emalloc(sizeof(rcode)+sz);
-							if (reg_comp(prog->la[prog->laidx], re, 0, laidx, prog->flg)) {
+							if (reg_comp(prog->la[prog->laidx], re, 0, laidx, flg)) {
 								reg_free(prog->la[prog->laidx]);
 								return -1;
 							}
@@ -345,7 +344,6 @@ static int reg_comp(rcode *prog, char *re, int nsubs, int laidx, int flags)
 		switch (prog->insts[i]) {
 		case LOOKAROUND:
 			i += 3;
-			icnt++;
 			break;
 		case CLASS:
 			i += prog->insts[i+2] * 2 + 2;
@@ -370,9 +368,9 @@ static int reg_comp(rcode *prog, char *re, int nsubs, int laidx, int flags)
 	prog->insts[prog->unilen++] = prog->sub + 1;
 	prog->insts[prog->unilen++] = MATCH;
 	prog->splits = (scnt - SPLIT) / 2;
-	prog->len = icnt + 2;
+	prog->len = icnt + 3;
 	prog->presub = sizeof(rsub) + (sizeof(char*) * (nsubs + 1) * 2);
-	prog->sub = prog->presub * (prog->len - prog->splits + 3);
+	prog->sub = prog->presub * (icnt + 6);
 	prog->sparsesz = scnt;
 	return 0;
 }
@@ -380,18 +378,22 @@ static int reg_comp(rcode *prog, char *re, int nsubs, int laidx, int flags)
 #define _return(state) { if (eol_ch) utf8_length[eol_ch] = 1; return state; } \
 
 #define newsub(init, copy) \
-if (freesub) \
-	{ s1 = freesub; freesub = s1->freesub; copy } \
-else \
-	{ if (suboff == prog->sub) suboff = 0; \
-	s1 = (rsub*)&nsubs[suboff]; suboff += rsubsize; init } \
+if (freesub) { \
+	s1 = freesub; freesub = s1->freesub; copy \
+} else { \
+	if (suboff == prog->sub) \
+		suboff = 0; \
+	s1 = (rsub*)&nsubs[suboff]; \
+	suboff += rsubsize; init \
+} \
 
 #define onlist(nn) \
 if (sdense[spc] < sparsesz) \
-	if (sdense[sdense[spc] * 2] == (unsigned int)spc) \
+	if (sdense[sdense[spc]] == (unsigned int)spc) \
 		deccheck(nn) \
 sdense[spc] = sparsesz; \
-sdense[sparsesz++ * 2] = spc; \
+sdense[sparsesz] = spc; \
+sparsesz += 2; \
 
 #define decref(csub) \
 if (--csub->ref == 0) { \
@@ -421,10 +423,10 @@ subs[si++] = nsub; \
 goto next##nn; \
 
 #define saveclist() \
-if (npc[1] > nsubp / 2 && nsub->ref > 1) { \
+if (npc[1] > (nsubp >> 1) && nsub->ref > 1) { \
 	nsub->ref--; \
 	newsub(memcpy(s1->sub, nsub->sub, osubp);, \
-	memcpy(s1->sub, nsub->sub, osubp / 2);) \
+	memcpy(s1->sub, nsub->sub, osubp >> 1);) \
 	nsub = s1; \
 	nsub->ref = 1; \
 } \
@@ -493,14 +495,27 @@ if (spc > JMP) { \
 	npc += 2 + npc[1]; \
 	goto rec##nn; \
 } else if (spc == LOOKAROUND) { \
-	int test; \
-	const char *str = npc[1] == '<' || npc[1] == '>' ? s : _sp; \
-	if (npc[3]) { \
-		test = !strncmp(str, (char*)(prog->la[npc[2]]+1), npc[3]); \
-	} else \
-		test = re_pikevm(prog->la[npc[2]], str, NULL, 0, 0); \
-	if ((test && (npc[1] == '!' || npc[1] == '>')) \
-			|| (!test && (npc[1] == '=' || npc[1] == '<'))) \
+	if (npc[1] == '=' || npc[1] == '!') { \
+		if (npc[3]) \
+			cnt = !strncmp(_sp, (char*)(prog->la[npc[2]]+1), npc[3]); \
+		else \
+			cnt = re_pikevm(prog->la[npc[2]], _sp, NULL, 0, 0); \
+	} else { \
+		for (j = 0; j < lblen; j+=2) \
+			if (lb[j] == npc - insts) { \
+				cnt = lb[j+1]; \
+				goto lb_cached##nn; \
+			} \
+		if (npc[3]) \
+			cnt = !strncmp(s, (char*)(prog->la[npc[2]]+1), npc[3]); \
+		else \
+			cnt = re_pikevm(prog->la[npc[2]], s, NULL, 0, 0); \
+		lb[lblen++] = npc - insts; \
+		lb[lblen++] = cnt; \
+	} \
+	lb_cached##nn: \
+	if ((cnt && (npc[1] == '!' || npc[1] == '>')) \
+			|| (!cnt && (npc[1] == '=' || npc[1] == '<'))) \
 		deccheck(nn) \
 	npc += 4; goto rec##nn; \
 } else { \
@@ -534,8 +549,8 @@ for (;; sp = _sp) { \
 				deccont() \
 			npc += 2; \
 		} else if (spc == CLASS) { \
-			int *pc = npc+1; \
-			int cnt = pc[1]; \
+			pc = npc+1; \
+			cnt = pc[1]; \
 			for (; cnt > 0; cnt--) { \
 				pc += 2; \
 				if (c >= *pc && c <= pc[1]) \
@@ -553,9 +568,9 @@ for (;; sp = _sp) { \
 				matched = nsub; \
 			} \
 			if (sp == _sp || nlistidx == 1) { \
-				for (i = 0, j = i; i < nsubp; i+=2, j++) { \
-					subp[i] = matched->sub[j]; \
-					subp[i+1] = matched->sub[nsubp / 2 + j]; \
+				for (i = 0; i < nsubp; i+=2) { \
+					subp[i] = matched->sub[i >> 1]; \
+					subp[i+1] = matched->sub[(nsubp >> 1) + (i >> 1)]; \
 				} \
 				_return(1) \
 			} \
@@ -578,21 +593,22 @@ for (;; sp = _sp) { \
 } \
 _return(0) \
 
-int re_pikevm(rcode *prog, const char *s, const char **subp, int nsubp, int flg)
+static int re_pikevm(rcode *prog, const char *s, const char **subp, int nsubp, int flg)
 {
 	if (!*s)
 		return 0;
 	const char *sp = s, *_sp = s;
-	int rsubsize = prog->presub, suboff = 0;
-	int spc, i, j, c, *npc, osubp = nsubp * sizeof(char*);
-	int si = 0, clistidx = 0, nlistidx, mcont = MATCH;
-	int *insts = prog->insts, eol_ch = flg & REG_NEWLINE ? '\n' : 0;
-	int *pcs[prog->splits];
+	int *pcs[prog->splits], *npc, *pc, *insts = prog->insts;
 	rsub *subs[prog->splits];
-	unsigned int sdense[prog->sparsesz], sparsesz = 0;
 	rsub *nsub, *s1, *matched = NULL, *freesub = NULL;
 	rthread _clist[prog->len], _nlist[prog->len];
 	rthread *clist = _clist, *nlist = _nlist, *tmp;
+	int rsubsize = prog->presub, suboff = 0;
+	int cnt, spc, i, j, c, osubp = nsubp * sizeof(char*);
+	int si = 0, clistidx = 0, nlistidx, mcont = MATCH;
+	int eol_ch = flg & REG_NEWLINE ? '\n' : 0;
+	unsigned int sdense[prog->sparsesz], sparsesz = 0;
+	int lb[prog->laidx << 1], lblen = 0;
 	char nsubs[prog->sub];
 	flg = prog->flg | flg;
 	if (eol_ch)

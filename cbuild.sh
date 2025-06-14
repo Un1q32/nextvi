@@ -34,6 +34,12 @@ run() {
     $@
 }
 
+: "${CC:=cc}"
+: "${STRIP:=strip}"
+: "${PREFIX:=/usr/local}"
+: "${OS:=$(uname)}"
+: "${CFLAGS:=-O2}"
+
 CFLAGS="\
 -pedantic -Wall -Wextra \
 -Wno-implicit-fallthrough \
@@ -41,11 +47,8 @@ CFLAGS="\
 -Wno-unused-parameter \
 -Wno-unused-result \
 -Wfatal-errors -std=c99 \
- $CFLAGS"
+$CFLAGS"
 
-: "${CC:=cc}"
-: "${PREFIX:=/usr/local}"
-: "${OS:=$(uname)}"
 case "$OS" in
 *_NT*) CFLAGS="$CFLAGS -D_POSIX_C_SOURCE=200809L" ;;
 *Darwin*) CFLAGS="$CFLAGS -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE" ;;
@@ -53,11 +56,10 @@ case "$OS" in
 *) CFLAGS="$CFLAGS -D_DEFAULT_SOURCE" ;;
 esac
 
-: "${OPTFLAGS:=-O2}"
 build() {
     require "${CC}"
     log "$G" "Entering step: \"Build \"${BASE##*/}\" using \"$CC\"\""
-    run "$CC vi.c -o vi $OPTFLAGS $CFLAGS" || {
+    run "$CC vi.c -o vi $CFLAGS" || {
         log "$R" "Failed during step: \"Build \"${BASE##*/}\" using \"$CC\""
         exit 1
     }
@@ -65,9 +67,15 @@ build() {
 
 install() {
     run rm "$DESTDIR$PREFIX/bin/vi" 2> /dev/null
+    command -v "$STRIP" >/dev/null 2>&1 && run "$STRIP" vi
     run mkdir -p "$DESTDIR$PREFIX/bin/" &&
     run cp -f vi "$DESTDIR$PREFIX/bin/vi" &&
     [ -x "$DESTDIR$PREFIX/bin/vi" ] && log "$G" "\"${BASE##*/}\" has been installed to $DESTDIR$PREFIX/bin/vi" || log "$R" "Couldn't finish installation"
+}
+
+print_usage() {
+    echo "Usage: $0 {install|pgobuild|build|debug|fetch|clean|bench}"
+    exit "$1"
 }
 
 # Argument processing
@@ -79,8 +87,8 @@ while [ $# -gt 0 ] || [ "$1" = "" ]; do
         ;;
     "debug")
         shift
-        log "$G" "Entering step: \"Override \"\$OPTFLAGS\" with debugging flags\""
-        OPTFLAGS="-O0 -g"
+        CFLAGS="$CFLAGS -O0 -g"
+        log "$G" "Entering step: \"Append \"\$CFLAGS\" with debugging flags\""
         set -- build "$@"
         ;;
     "" | "build")
@@ -93,7 +101,7 @@ while [ $# -gt 0 ] || [ "$1" = "" ]; do
         if [ "$explicit" != "1" ]; then
             if [ -f ./vi ] || [ -f ./nextvi ]; then
                 log "$R" "Nothing to do; \"${BASE##*/}\" was already compiled"
-                exit 0
+                print_usage 0
             fi
         fi
         # Start build process
@@ -113,7 +121,8 @@ while [ $# -gt 0 ] || [ "$1" = "" ]; do
                 [ -z "$PROFDATA" ] && log "R" "pgobuild with clang requires llvm-profdata" && exit 1
             fi
             run "$CC vi.c -fprofile-generate=. -o vi -O2 $CFLAGS"
-            echo "qq" | ./vi -v ./vi.c >/dev/null
+            export EXINIT=$'&dw100.1\\\\:/not matching:&:b0:&100J0300liinsert:&ewbgwZz'
+            ./vi ./vi.c > /dev/null
             [ "$clang" = 1 ] && run "$PROFDATA" merge ./*.profraw -o default.profdata
             run "$CC vi.c -fprofile-use=. -o vi -O2 $CFLAGS"
             rm -f ./*.gcda ./*.profraw ./default.profdata
@@ -154,14 +163,13 @@ while [ $# -gt 0 ] || [ "$1" = "" ]; do
         ;;
     "bench")
         shift
-        export EXINIT="${EXINIT}:&dw1999.qq"
+        export EXINIT="${EXINIT}:&dw1999.Zx"
         valgrind --tool=callgrind ./vi vi.c
         valgrind --tool=cachegrind --cache-sim=yes --branch-sim=yes ./vi vi.c
         exit 0
         ;;
     *)
-        echo "Usage: $0 {install|pgobuild|build|debug|fetch|clean}"
-        exit 1
+        print_usage 1
         ;;
     esac
 done
