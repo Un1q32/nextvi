@@ -281,7 +281,7 @@ static int led_lastword(char *s)
 }
 
 static void led_printparts(sbuf *sb, int pre, int ps,
-	char *post, int postn, int ai_max)
+	char *post, int postn, int ai_max, int print)
 {
 	if (!xled) {
 		sbuf_set(sb, '\0', 4)
@@ -309,8 +309,10 @@ static void led_printparts(sbuf *sb, int pre, int ps,
 	}
 	if (pos >= xleft + xcols || pos < xleft)
 		xleft = pos < xcols ? 0 : pos - xcols / 2;
-	syn_blockhl = -1;
-	led_crender(r->s, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	if (print) {
+		syn_blockhl = -1;
+		led_crender(sb->s+ps, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	}
 	term_pos(-1, led_pos(r->s, pos) + vi_lncol);
 	sbufn_cut(sb, psn)
 	rstate -= 2;
@@ -416,7 +418,8 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int postn,
 	int c, i, lsug = 0, sug_pt = -1;
 	char *cs, *sug = NULL, *_sug = NULL;
 	while (1) {
-		led_printparts(sb, pre, ps, post, postn, ai_max);
+		led_printparts(sb, pre, ps, post, postn, ai_max, !memchr("ABCD", vi_insmov, 4));
+		vi_insmov = -1;
 		len = sb->s_n;
 		c = term_read();
 		switch (c) {
@@ -608,6 +611,20 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int postn,
 			else
 				led_redraw(sb->s, 0, orow, lsh);
 			continue;
+		case '\033':;	/* Arrow keys */
+			char cbuf[1];
+			cbuf[0] = '\0';
+			int fl = fcntl(STDIN_FILENO, F_GETFL);
+			fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
+			read(STDIN_FILENO, cbuf, 1);
+			if (*cbuf == '[') {
+				read(STDIN_FILENO, cbuf, 1);
+				vi_insmov = *cbuf;
+				fcntl(STDIN_FILENO, F_SETFL, fl);
+				goto _leave;
+			}
+			fcntl(STDIN_FILENO, F_SETFL, fl);
+			goto leave;
 		case TK_CTL('o'):;
 			led_modeswap();
 			continue;
@@ -623,6 +640,7 @@ static void led_line(sbuf *sb, int ps, int pre, char *post, int postn,
 	}
 leave:
 	vi_insmov = c;
+_leave:
 	*key = c;
 }
 
@@ -656,7 +674,7 @@ void led_input(sbuf *sb, char **post, int postn, int row, int lsh)
 			return;
 		}
 		sbuf_chr(sb, key)
-		led_printparts(sb, -1, ps, "", 0, 0);
+		led_printparts(sb, -1, ps, "", 0, 0, 1);
 		term_chr('\n');
 		term_room(1);
 		xrow++;
