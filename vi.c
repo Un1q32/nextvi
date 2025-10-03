@@ -1901,7 +1901,7 @@ int main(int argc, char *argv[])
 				}
 			} else {
 				fprintf(stderr, "Unknown option: -%c\n", argv[i][j]);
-				fprintf(stderr, "Nextvi-1.5 Usage: %s [-emRsv] [-c cmd] [file ...]\n", argv[0]);
+				fprintf(stderr, "Nextvi-1.6 Usage: %s [-emRsv] [-c cmd] [file ...]\n", argv[0]);
 				return EXIT_FAILURE;
 			}
 		}
