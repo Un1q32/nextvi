@@ -241,7 +241,7 @@ int lbuf_wr(struct lbuf *lb, int fd, int beg, int end)
 		while (nw < nl) {
 			long nc = write(fd, ln + nw, nl - nw);
 			if (nc < 0)
-				return 1;
+				return nc;
 			nw += nc;
 		}
 	}
@@ -468,7 +468,7 @@ int lbuf_eol(struct lbuf *lb, int row, int state)
 	return state < 0 ? 0 : state;
 }
 
-static int lbuf_next(struct lbuf *lb, int dir, int *r, int *o)
+int lbuf_next(struct lbuf *lb, int dir, int *r, int *o)
 {
 	int odir = dir > 0 ? 1 : -1;
 	int len, off = *o + odir;

@@ -180,6 +180,7 @@ int lbuf_redo(struct lbuf *lb, int *row, int *off);
 void lbuf_saved(struct lbuf *lb, int clear);
 int lbuf_indents(struct lbuf *lb, int r);
 int lbuf_eol(struct lbuf *lb, int r, int state);
+int lbuf_next(struct lbuf *lb, int dir, int *r, int *o);
 int lbuf_findchar(struct lbuf *lb, char *cs, int cmd, int n, int *r, int *o);
 int lbuf_search(struct lbuf *lb, rset *re, int dir, int *r,
 			int *o, int ln_n, int skip);
@@ -241,17 +242,17 @@ void dir_init(void);
 #define SYN_BSE		0xc00000
 #define SYN_BP		0x1000000
 #define SYN_IGN		0x2000000
-#define SYN_SAIGN	0x4000000
-#define SYN_EAIGN	0x8000000
-#define SYN_AIGN	0xc000000
+#define SYN_SATT	0x4000000
+#define SYN_EATT	0x8000000
+#define SYN_ATT		0xc000000
 #define SYN_BSSET(a)	(a & SYN_BS)
 #define SYN_BESET(a)	(a & SYN_BE)
 #define SYN_BSESET(a)	(a & SYN_BSE)
 #define SYN_BPSET(a)	(a & SYN_BP)
 #define SYN_IGNSET(a)	(a & SYN_IGN)
-#define SYN_SAIGNSET(a)	(a & SYN_SAIGN)
-#define SYN_EAIGNSET(a)	(a & SYN_EAIGN)
-#define SYN_AIGNSET(a)	(a & SYN_AIGN)
+#define SYN_SATTSET(a)	(a & SYN_SATT)
+#define SYN_EATTSET(a)	(a & SYN_EATT)
+#define SYN_ATTSET(a)	(a & SYN_ATT)
 extern int syn_blockhl;
 char *syn_setft(char *ft);
 void syn_scdir(int scdir);
@@ -293,10 +294,10 @@ char *uc_subl(char *s, int beg, int end, int *rlen, int *rn);
 char *uc_sub(char *s, int beg, int end)
 	{ int l; return uc_subl(s, beg, end, &l, &l); }
 char *uc_dup(const char *s);
-int uc_isspace(char *s);
-int uc_isprint(char *s);
-int uc_isdigit(char *s);
-int uc_isalpha(char *s);
+#define uc_isspace(s) ((unsigned char)*s < 0x7f && isspace((unsigned char)*s))
+#define uc_isprint(s) ((unsigned char)*s > 0x7f || isprint((unsigned char)*s))
+#define uc_isdigit(s) ((unsigned char)*s < 0x7f && isdigit((unsigned char)*s))
+#define uc_isalpha(s) ((unsigned char)*s > 0x7f || isalpha((unsigned char)*s))
 int uc_kind(char *c);
 int uc_isbell(int c);
 int uc_acomb(int c);
@@ -347,7 +348,7 @@ char *xgetenv(char* q[]);
 
 #define TK_ESC		TK_CTL('[')
 #define TK_CTL(x)	(x & 037)
-#define TK_INT(c)	(c <= 0 || c == TK_ESC || c == TK_CTL('c'))
+#define TK_INT(c)	(!c || c == TK_ESC || c == TK_CTL('c'))
 
 /* led.c line-oriented input and output */
 typedef struct {
