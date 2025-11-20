@@ -63,7 +63,7 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 {
 	char *re = re_loc, *s, *p;
 	int *code = sizecode ? NULL : prog->insts;
-	int start = PC, term = PC, lb_start = -1;
+	int start = PC, term = PC, lb_start = 0;
 	int alt_label = 0, c, l, cnt;
 	int alt_stack[4096], altc = 0;
 	int cap_stack[4096 * 5], capc = 0;
@@ -161,7 +161,7 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 					s += uc_len(s);
 				}
 				EMIT(PC++, la_static);
-				EMIT(PC++, re[-1] == '<' || re[-1] == '>' ? lb_start : 0);
+				EMIT(PC++, lb_start);
 				if (code) {
 					*s = '\0';
 					if (la_static) {
@@ -223,7 +223,7 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 			}
 			break;
 		case '{':;
-			int maxcnt = 0, mincnt = 0, i = 0, size = PC - term;
+			int i, maxcnt = 0, mincnt = 0, size = PC - term, nojmp = 0;
 			re++;
 			while (isdigit((unsigned char) *re))
 				mincnt = mincnt * 10 + *re++ - '0';
@@ -234,15 +234,28 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 					EMIT(PC+1, REL(PC, PC - size));
 					PC += 2;
 					maxcnt = mincnt;
+					nojmp = 1;
 				}
 				while (isdigit((unsigned char) *re))
 					maxcnt = maxcnt * 10 + *re++ - '0';
 			} else
 				maxcnt = mincnt;
-			for (; i < mincnt-1; i++) {
+			if (!mincnt && !maxcnt) {
+				zcase:
+				INSERT_CODE(term, 2, PC);
+				EMIT(term, nojmp ? SPLIT : JMP);
+				EMIT(term + 1, REL(term, PC));
+				term = PC;
+				break;
+			}
+			for (i = 0; i < mincnt-1; i++) {
 				if (code)
 					memcpy(&code[PC], &code[term], size*sizeof(int));
 				PC += size;
+			}
+			if (!mincnt) {
+				nojmp = 2;
+				mincnt++;
 			}
 			for (i = maxcnt-mincnt; i > 0; i--) {
 				EMIT(PC++, SPLIT);
@@ -251,6 +264,8 @@ static int compilecode(char *re_loc, rcode *prog, int sizecode, int flg)
 					memcpy(&code[PC], &code[term], size*sizeof(int));
 				PC += size;
 			}
+			if (nojmp == 2)
+				goto zcase;
 			break;
 		case '?':
 			if (PC == term)
@@ -499,9 +514,18 @@ if (spc > JMP) { \
 	npc += 2 + npc[1]; \
 	goto rec##nn; \
 } else if (spc == LOOKAROUND) { \
-	s0 = npc[4] >= 0 ? _sp - npc[4] : s; \
-	if (s0 < s) \
-		goto out##nn; \
+	if ((npc[1] & 3) < 2) \
+		s0 = _sp; \
+	else if (npc[4] < 0) \
+		s0 = s; \
+	else if (npc[4]) { \
+		s0 = _sp - npc[4]; \
+		if (s0 < s) { \
+			cnt = 0; \
+			goto out##nn; \
+		} \
+	} else \
+		s0 = sp; \
 	j = npc[2]; \
 	if (npc[3]) { \
 		s1 = (char*)(prog->la[j]+1); \
@@ -512,9 +536,9 @@ if (spc > JMP) { \
 		lb[j] = cnt ? _subp[0] : NULL; \
 	} else \
 		cnt = !!lb[j]; \
+	out##nn: \
 	if (npc[1] * ((cnt << 1) - 1) < 0) \
 		deccheck(nn) \
-	out##nn: \
 	npc += 5; goto rec##nn; \
 } else { \
 	if (flg & REG_NOTBOL || _sp != s) { \

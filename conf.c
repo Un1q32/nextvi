@@ -61,13 +61,13 @@ struct highlight hls[] = {
 
 	{FT(c), "^.+\\\\\n$", A(CY1), 1},
 	{FT(c), NULL, A(CY1 | SYN_BD), 1, 2},
-	{FT(c), "(/\\*(?:(?!^\\*/).)*)|((?:(?!^/\\*).)*\\*/(?<\".*\\*/.*(?:\"|\\\\\n$)))",
+	{FT(c), "(/\\*(?:(?!^\\*/).)*)|((?#-1)(?:(?!^/\\*).)*\\*/(?<\".*\\*/.*(?:\"|\\\\\n$)))",
 		A(BL | SYN_IT, BL | SYN_BS, BL | SYN_BE)},
 	{FT(c), NULL, A(RE1 | SYN_BGMK(BL1)), 0, 3},
 	{FT(c), NULL, A(RE1), 0, 1},
-	{FT(c), "\\<(?:signed|unsigned|char|short|u?int(?:64_t|32_t|16_t|8_t)?|\
+	{FT(c), "\\<(?:signed|unsigned|char|short|int|[a-z0-9_]+_t|FILE|DIR|\
 long|f(?:loat|64|32)|double|void|enum|union|typedef|static|extern|register|struct|\
-s(?:64|32|16|8)|u(?:64|32|16|8)|b32|bool|const|size_t|inline|restrict|\
+s(?:64|32|16|8)|u(?:64|32|16|8)|b32|bool|const|inline|restrict|\
 (true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|malloc|free|realloc|NULL|std(?:in|\
 out|err)|errno)|(return|for|while|if|else|do|sizeof|goto|switch|case|\
 default|break|continue))\\>", A(GR1, BL1 | SYN_BD, YE1)},
@@ -79,7 +79,7 @@ default|break|continue))\\>", A(GR1, BL1 | SYN_BD, YE1)},
 	{FT(c), "[-+.]?\\<(?:0[xX][0-9a-fA-FUL]+|[0-9]+\\.?[0-9eEfFuULl]+|[0-9]+)\\>", A(RE1)},
 	{FT(c), "(\"[^\"]*\\\\\n$)|^(.*\"(?!\\\\\n$))",
 		A(MA | SYN_IGN, MA | SYN_BS | SYN_SATT, MA | SYN_BE | SYN_EATT, 2, IN, CY1), 3},
-	{FT(c), "(\\?).+?(:)", A(SYN_IGN, YE | SYN_SATT, YE, 2, IN, CY1), 4},
+	{FT(c), "(\\?).+?(:)", A(SYN_IGN, YE | SYN_SATT, YE | SYN_SATT, 2, IN, CY1), 4},
 
 	{FT(roff), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(roff), "^[.'][ \t]*(([sS][hH].*)|(de) (.*)|([^ \t\\\\]{2,}))?.*",
@@ -215,7 +215,7 @@ strike|tt|xmp|doctype|h1|h2|h3|h4|h5|h6|\
 	{FT(diff), "^diff .*", A(SYN_BD)},
 
 	{fm_ft, "^.+\n$", A(AY1), 1},
-	{fm_ft, "(^\\.?\\.?)/|(?#1)(?>^/)(\\.\\.(/))|(?:[^/]+/)+", A(CY, BL, BL, CY), 2},
+	{fm_ft, "(^\\.?\\.?)/|(\\.\\.(/))|(?:[^/]+/)+", A(CY, BL, BL, CY), 2},
 	{fm_ft, "[^/]*\\.sh\n$", A(GR)},
 	{fm_ft, "[^/]*(?:\\.c|\\.h|\\.cpp|\\.cc)\n$", A(MA)},
 
@@ -231,7 +231,7 @@ strike|tt|xmp|doctype|h1|h2|h3|h4|h5|h6|\
 	{ac_ft, "[^ \t-/:-@[-^{-~]+$|(.+$)", A(IN, SYN_BGMK(AY1))},
 
 	{ex_ft, ".+", A(AY1 | SYN_BD), 1},
-	{ex_ft, "(?#1):[ \t]*((((?:<.*?(?:(?<^\\\\)<|$)|>.*?(?:(?<^\\\\)>|$))?\
+	{ex_ft, ":[ \t]*((((?:<.*?(?:(?<^\\\\)<|$)|>.*?(?:(?<^\\\\)>|$))?\
 [.%$]?(?:'[a-z'`[\\]*])?([0-9]*)?)(?:([-*-+/%])[0-9]+)*)[ \t]*(?:([,;])[ \t]*\
 ((?:<.*?(?:(?<^\\\\)<|$)|>.*?(?:(?<^\\\\)>|$))?[.$]?(?:'[a-z'`[\\]*])?\
 ([0-9]*)?)(?:([-*-+/%])([0-9]+))*[ \t]*)*)\
