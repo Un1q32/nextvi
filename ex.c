@@ -11,7 +11,7 @@ int xled = 1;			/* use the line editor */
 int xtd = +1;			/* current text direction */
 int xshape = 1;			/* perform letter shaping */
 int xorder = 1;			/* change the order of characters */
-int xtbs = 8;			/* number of spaces for tab */
+int xtbs = 4;			/* number of spaces for tab */
 int xish;			/* interactive shell */
 int xgrp;			/* regex search group */
 int xpac;			/* print autocomplete options */
