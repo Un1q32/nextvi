@@ -353,6 +353,28 @@ static int vi_motionln(int *row, int cmd, int cnt)
 {
 	int mark, c = term_read();
 	switch (c) {
+	case '\033':	/* Arrow keys */
+		c = term_read();
+		if (c == '[') {
+			c = term_read();
+			switch (c) {
+			case 'A':	/* ↑ */
+				*row = MAX(*row - cnt, 0);
+				c = 'k';
+				break;
+			case 'B':	/* ↓ */
+				*row = MIN(*row + cnt, lbuf_len(xb) - 1);
+				c = 'j';
+				break;
+			default:	/* Not a line motion so we put back all the arrow characters */
+				term_back('\033');
+				term_back('[');
+				term_back(c);
+				return 0;
+			}
+		} else	/* Not an arrow sequence so we abort */
+			return 0;
+		break;
 	case '\n':
 	case '+':
 	case 'j':
@@ -587,6 +609,27 @@ static int vi_motion(int vc, int *row, int *off)
 	}
 	mv = term_read();
 	switch (mv) {
+	case '\033':	/* Arrow keys */
+		mv = term_read();
+		if (mv == '[') {
+			if (!(cs = lbuf_get(xb, *row)))
+				return -1;
+			dir = dir_context(lbuf_get(xb, *row));
+			mv = term_read();
+			switch (mv) {
+			case 'D':	/* ← */
+				dir = -dir;
+			case 'C':	/* → */
+				for (i = 0; i < cnt; i++)
+					if (vi_nextcol(cs, dir, off))
+						break;
+				break;
+			default:	/* Not a motion managed by this function so we abort */
+				return 0;
+			}
+		} else	/* Not a 033[X command so we abort */
+			return 0;
+		break;
 	case ',':
 	case ';':
 		if (!vi_charlast[0])
@@ -663,9 +706,13 @@ static int vi_motion(int vc, int *row, int *off)
 		break;
 	case 'w':
 	case 'W':
+		if (vc && cnt == 1)
+			dir = 2;
+		else
+			dir = vi_nlword+1;
 		mark = mv == 'W';
 		for (i = 0; i < cnt; i++)
-			if (lbuf_wordbeg(xb, mark, vi_nlword+1, row, off))
+			if (lbuf_wordbeg(xb, mark, dir, row, off))
 				break;
 		break;
 	case '(':
@@ -856,6 +903,8 @@ static void vi_indents(char *ln, int *l)
 	*l = ln - pln;
 }
 
+static int lmodified;
+
 static int vi_change(int r1, int o1, int r2, int o2, int lnmode)
 {
 	char *post, *ln = lbuf_get(xb, r1);
@@ -887,6 +936,7 @@ static int vi_change(int r1, int o1, int r2, int o2, int lnmode)
 	if (postn + l2 != tlen || memcmp(ln + l1, sb->s + l1, tlen - l2 - l1))
 		lbuf_edit(xb, sb->s, r1, r2 + 1, o1, xoff);
 	free(sb->s);
+	lmodified = 1;
 	return key;
 }
 
@@ -1055,8 +1105,11 @@ static int vc_insert(int cmd)
 	term_room(cmdo);
 	sbuf_mem(sb, ln, l1)
 	key = led_input(sb, post, postn, row, cmdo << 2, &postn);
-	if (postn != l1 || cmdo || !ln)
+	if (postn != l1 || cmdo || !ln) {
 		lbuf_edit(xb, sb->s, row, row + !cmdo, off, xoff);
+		lmodified = 1;
+	} else
+		lmodified = 0;
 	free(sb->s);
 	return key;
 }
@@ -1516,8 +1569,42 @@ void vi(int init)
 					term_back(xoff != lbuf_eol(xb, xrow, 1) ? 'i' : 'a');
 					break;
 				}
+				switch (k) {
+				case 'A':	/* ↑ */
+					term_back(!lmodified ? c : 'i');
+					if (lmodified)
+						vi_col = vi_off2col(xb, xrow, xoff);
+					xrow--;
+					xrow = xrow < 0 ? 0 : xrow;
+					xoff = vi_col2off(xb, xrow, vi_col);
+					lmodified = 0;
+					goto _break;
+				case 'B':	/* ↓ */
+					term_back(!lmodified ? c : 'i');
+					if (lmodified)
+						vi_col = vi_off2col(xb, xrow, xoff);
+					xrow++;
+					xoff = vi_col2off(xb, xrow, vi_col);
+					lmodified = 0;
+					goto _break;
+				case 'D':	/* ← */
+					term_back('i');
+					xoff--;
+					xoff = xoff < 0 ? 0 : xoff;
+					vi_col = vi_off2col(xb, xrow, xoff);
+					goto _break;
+				case 'C':	/* → */
+					term_back(*uc_chr(lbuf_get(xb, xrow), xoff+2) ? 'i' : 'A');
+					xoff++;
+					if (*uc_chr(lbuf_get(xb, xrow), xoff))
+						vi_col = vi_off2col(xb, xrow, xoff);
+					goto _break;
+				}
 				if (c != 'A' && c != 'C')
 					xoff--;
+				break;
+				_break:
+				vi_mod = 0;
 				break;
 			case 'J':
 				vc_join(1, vi_arg <= 1 ? 2 : vi_arg);
@@ -1786,14 +1873,16 @@ static int setup_signals(void)
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
-	if (sigaction(SIGWINCH, &sa, NULL))
+	if (sigaction(SIGWINCH, &sa, NULL)
+			|| sigaction(SIGINT, &sa, NULL))
 		return 0;
 	return 1;
 }
 
 int main(int argc, char *argv[])
 {
-	int i, j;
+	int i, j, cmdnum = 0;
+	char *ex_cmds[argc - 1];
 	if (!setup_signals())
 		return EXIT_FAILURE;
 	dir_init();
@@ -1804,7 +1893,8 @@ int main(int argc, char *argv[])
 		if (argv[i][1] == '-' && !argv[i][2]) {
 			i++;
 			break;
-		}
+		} else if (!argv[i][1])
+			stdin_fd = MAX(0, open(ctermid(NULL), O_RDONLY));
 		for (j = 1; argv[i][j]; j++) {
 			if (argv[i][j] == 's')
 				xvis |= 2|4;
@@ -1814,16 +1904,29 @@ int main(int argc, char *argv[])
 				xvis |= 8;
 			else if (argv[i][j] == 'v')
 				xvis &= ~4;
-			else {
+			else if (argv[i][j] == 'R')
+				readonly = 1;
+			else if (argv[i][j] == 'c') {
+				if (argv[i][j+1]) {
+					ex_cmds[cmdnum++] = argv[i] + j + 1;
+					break;
+				} else if (i + 1 < argc) {
+					ex_cmds[cmdnum++] = argv[++i];
+					break;
+				} else {
+					fprintf(stderr, "Missing argument for -c\n");
+					return EXIT_FAILURE;
+				}
+			} else {
 				fprintf(stderr, "Unknown option: -%c\n", argv[i][j]);
-				fprintf(stderr, "Nextvi-3.2 Usage: %s [-emsv] [file ...]\n", argv[0]);
+				fprintf(stderr, "Nextvi-3.2 Usage: %s [-emRsv] [-c cmd] [file ...]\n", argv[0]);
 				return EXIT_FAILURE;
 			}
 		}
 	}
 	ibuf = emalloc(ibuf_sz);
 	term_init();
-	ex_init(argv + i, argc - i);
+	ex_init(argv + i, argc - i, ex_cmds, cmdnum);
 	if (xvis & 4)
 		ex();
 	else

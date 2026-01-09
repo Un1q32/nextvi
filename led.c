@@ -3,6 +3,7 @@
 static sbuf *suggestsb;
 static sbuf *acsb;
 sbuf *led_attsb;
+static int vi_insmov;
 
 int dstrlen(const char *s, char delim)
 {
@@ -116,7 +117,7 @@ for (i = 0; i < cterm;) { \
 	o = off[i]; \
 	if (o >= 0) { \
 		for (l = i; off[i] == o; i++); \
-		att_new = att[bound ? ctt[atti++] : o]; \
+		att_new = att[o]; \
 		if (att_new != att_old) \
 			sbuf_str(out, term_att(att_new)) \
 		char *s = ren_translate(chrs[o], s0); \
@@ -147,13 +148,11 @@ void led_render(char *s0, int cbeg, int cend)
 		return;
 	ren_state *r = ren_position(s0);
 	int j, c, l, i, o, n = r->n;
-	int att_old = 0, atti = 0, cterm = cend - cbeg;
-	char *bound = NULL;
+	int att_old = 0, cterm = cend - cbeg;
 	char **chrs = r->chrs;	/* chrs[i]: the i-th character in s0 */
 	int off[cterm+1];	/* off[i]: the character at screen position i */
-	int att[cterm+1];	/* att[i]: the attributes of i-th character */
-	int stt[cterm+1];	/* stt[i]: remap off indexes */
-	int ctt[cterm+1];	/* ctt[i]: cterm bound attrs */
+	int *att = emalloc(n * sizeof(att[0]));
+	memset(att, 0, n * sizeof(att[0]));
 	int ctx = r->ctx;
 	off[cterm] = -1;
 	if (ctx < 0) {
@@ -164,72 +163,14 @@ void led_render(char *s0, int cbeg, int cend)
 		for (c = cbeg; c < cend; c++)
 			off[c - cbeg] = c <= r->cmax ? r->col[c] : -1;
 	}
-	if (r->cmax > cterm || cbeg) {
-		i = ctx < 0 ? cterm-1 : 0;
-		o = off[i];
-		if (o >= 0 && cbeg && r->pos[o] < cbeg)
-			while (off[i] == o)
-				off[ctx < 0 ? i-- : i++] = -1;
-		i = ctx < 0 ? 0 : cterm-1;
-		o = off[i];
-		if (o >= 0 && r->cmax > cterm && r->pos[o] + r->wid[o] > cend)
-			while (off[i] == o)
-				off[ctx < 0 ? i++ : i--] = -1;
-		for (i = 0, c = 0; i < cterm;) {
-			if ((o = off[i++]) >= 0) {
-				att[c++] = o;
-				for (; off[i] == o; i++);
-			}
-		}
-		stt[0] = 0;
-		for (i = 1; i < c; i++) {
-			int key0 = att[i];
-			j = i - 1;
-			while (j >= 0 && att[j] > key0) {
-				att[j + 1] = att[j];
-				stt[j + 1] = stt[j];
-				j = j - 1;
-			}
-			att[j + 1] = key0;
-			stt[j + 1] = i;
-		}
-		sbuf_smake(bsb, cterm*4);
-		for (i = 0; i < c; i++) {
-			ctt[stt[i]] = i;
-			stt[i] = att[i];
-			sbuf_mem(bsb, chrs[att[i]], uc_len(chrs[att[i]]))
-		}
-		sbufn_null(bsb)
-		bound = bsb->s;
-	}
-	memset(att, 0, MIN(n, cterm+1) * sizeof(att[0]));
 	if (xhl)
-		syn_highlight(att, bound ? bound : s0, MIN(n, cterm));
-	free(bound);
+		syn_highlight(att, s0, n);
 	if (led_attsb && xhl) {
 		led_att *p = (led_att*)led_attsb->s;
 		for (; (char*)p < &led_attsb->s[led_attsb->s_n]; p++) {
 			if (p->s != s0)
 				continue;
-			if (!bound)
-				att[p->off] = syn_merge(p->att, att[p->off]);
-			else if (c && stt[0] <= p->off && stt[c-1] >= p->off) {
-				i = p->off - stt[0];
-				if (i < c && stt[i] == p->off) {
-					att[i] = syn_merge(p->att, att[i]);
-					continue; /* text not reordered */
-				}
-				for (l = 0, j = c - 1; l <= j;) {
-					i = l + (j - l) / 2;
-					if (stt[i] == p->off) {
-						att[i] = syn_merge(p->att, att[i]);
-						break;
-					} else if (stt[i] < p->off)
-						l = i + 1;
-					else
-						j = i - 1;
-				}
-			}
+			att[p->off] = syn_merge(p->att, att[p->off]);
 		}
 	}
 	if (xhlr && xhl) {
@@ -242,7 +183,7 @@ void led_render(char *s0, int cbeg, int cend)
 				continue;
 			if (r->pos[o + 1] + r->wid[o + 1] != r->pos[o])
 				continue;
-			j = bound ? ctt[l-1] : o;
+			j = o;
 			att[j] = syn_merge(conf_hlrev, att[j]);
 			att[j+1] = syn_merge(conf_hlrev, att[j+1]);
 		}
@@ -280,7 +221,7 @@ static int led_lastword(char *s)
 }
 
 static void led_printparts(sbuf *sb, int pre, int ps,
-	char *post, int postn, int ai_max)
+	char *post, int postn, int ai_max, int print)
 {
 	if (!xled) {
 		sbufn_null(sb)
@@ -307,8 +248,10 @@ static void led_printparts(sbuf *sb, int pre, int ps,
 	}
 	if (pos >= xleft + xcols || pos < xleft)
 		xleft = pos < xcols ? 0 : pos - xcols / 2;
-	syn_blockhl = -1;
-	led_crender(r->s, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	if (print) {
+		syn_blockhl = -1;
+		led_crender(r->s, -1, vi_lncol, xleft, xleft + xcols - vi_lncol);
+	}
 	term_pos(-1, led_pos(r->s, pos) + vi_lncol);
 	sbufn_cut(sb, psn)
 	rstate -= 2;
@@ -411,7 +354,8 @@ static int led_line(sbuf *sb, int ps, int pre, char **post, int postn, char **po
 	char *cs;
 	int len, c, i;
 	do {
-		led_printparts(sb, pre, ps, *post, postn, ai_max);
+		led_printparts(sb, pre, ps, *post, postn, ai_max, !vi_insmov);
+		vi_insmov = 0;
 		len = sb->s_n;
 		c = term_read();
 		switch (c) {
@@ -608,6 +552,20 @@ static int led_line(sbuf *sb, int ps, int pre, char **post, int postn, char **po
 			else
 				led_redraw(sb->s, 0, orow, crow, ctop, flg);
 			continue;
+		case '\033':;	/* Arrow keys */
+			char cbuf[1];
+			cbuf[0] = '\0';
+			int fl = fcntl(STDIN_FILENO, F_GETFL);
+			fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
+			read(STDIN_FILENO, cbuf, 1);
+			if (*cbuf == '[') {
+				read(STDIN_FILENO, cbuf, 1);
+				fcntl(STDIN_FILENO, F_SETFL, fl);
+				vi_insmov = *cbuf;
+				return *cbuf;
+			}
+			fcntl(STDIN_FILENO, F_SETFL, fl);
+			return c;
 		case TK_CTL('o'): {
 			if (!*postref)
 				*postref = *post = uc_dup(*post);
@@ -685,7 +643,7 @@ int led_input(sbuf *sb, char *post, int postn, int row, int flg, int *pren)
 			return key;
 		}
 		sbuf_chr(sb, key)
-		led_printparts(sb, -1, ps, "", 0, 0);
+		led_printparts(sb, -1, ps, "", 0, 0, 1);
 		term_chr('\n');
 		term_room(1);
 		crow++;

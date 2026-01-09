@@ -34,6 +34,7 @@ int xkwdcnt;			/* number of search kwd changes */
 sbuf *xacreg;			/* autocomplete db filter regex */
 rset *xkwdrs;			/* the last searched keyword rset */
 sbuf *xregs[256];		/* string registers */
+int xexrc = 0;			/* read .exrc from the current directory */
 struct buf *bufs;		/* main buffers */
 struct buf tempbufs[2];		/* temporary buffers, for internal use */
 struct buf *ex_buf;		/* current buffer */
@@ -47,6 +48,7 @@ static char xserr[] = "syntax error";
 static char xirerr[] = "invalid range";
 static char xsrerr[] = "range not found";
 static char *xrerr;
+char readonly = 0;		/* commandline readonly option */
 
 static int rstrcmp(const char *s1, const char *s2, int l1, int l2)
 {
@@ -108,6 +110,7 @@ static int bufs_open(const char *path, int len)
 	bufs[i].top = 0;
 	bufs[i].td = +1;
 	bufs[i].mtime = -1;
+	bufs[i].readonly = readonly;
 	return i;
 }
 
@@ -370,7 +373,9 @@ int ex_edit(const char *path, int len)
 static void *ec_edit(char *loc, char *cmd, char *arg)
 {
 	char msg[128];
-	int fd, len, rd = 0, cd = 0;
+	int fd = 0, len, rd = 0, cd = 0;
+	if (!cmd)
+		goto ret;
 	if (arg[0] == '.' && arg[1] == '/')
 		cd = 2;
 	len = strlen(arg+cd);
@@ -384,16 +389,38 @@ static void *ec_edit(char *loc, char *cmd, char *arg)
 		bufs_switch(bufs_open(arg+cd, len));
 		cd = 3; /* XXX: quick hack to indicate new lbuf */
 	}
+	if (access(arg, F_OK) == 0 && access(arg, W_OK) == -1)
+		ex_buf->readonly = 1;
 	readfile(rd =)
 	if (cd == 3 || (!rd && fd >= 0)) {
 		ex_bufpostfix(ex_buf, arg[0]);
 		syn_setft(xb_ft);
 	}
+	if (!loc)
+		return fd < 0 || rd ? xuerr : NULL;
+	ret:
 	snprintf(msg, sizeof(msg), "\"%s\" %dL [%c]",
 			*xb_path ? xb_path : "unnamed", lbuf_len(xb),
 			fd < 0 || rd ? 'f' : 'r');
 	if (!(xvis & 8))
 		ex_print(msg, bar_ft)
+	if (!rd && fd >= 0 && lbuf_len(xb) > 0) {
+		int adv = 0;
+		while (lbuf_len(xb) > adv+1 && xb->ln[adv][0] == '\n')
+			adv++;
+		struct filetype lfts[] = {
+			{FT(sh), "^#!.*/(env[ \t]*)?(sh|bash|zsh|dash)([ \t]*.*)?$"},
+			{FT(py), "^#!.*/(env[ \t]*)?python3?([ \t]*.*)?$"}
+		};
+		char *pats[LEN(lfts)];
+		for (int i = 0; i < LEN(lfts); i++)
+			pats[i] = lfts[i].pat;
+		rset *rs = rset_make(LEN(lfts), pats, 0);
+		int hl = rset_find(rs, xb->ln[adv], NULL, REG_NEWLINE);
+		if (hl >= 0)
+			xb_ft = syn_setft(lfts[hl].ft);
+		rset_free(rs);
+	}
 	return (fd < 0 || rd) && *arg ? xuerr : NULL;
 }
 
@@ -662,6 +689,8 @@ static void *ec_write(char *loc, char *cmd, char *arg)
 		free(ibuf.s);
 	} else {
 		if (!strchr(cmd, '!')) {
+			if (ex_buf->readonly)
+				return "write failed: readonly option is set";
 			if (!strcmp(xb_path, path) && mtime(path) > ex_buf->mtime)
 				return "write failed: file changed";
 			if (arg[0] && mtime(path) >= 0)
@@ -1272,6 +1301,12 @@ static void *ec_setenc(char *loc, char *cmd, char *arg)
 	return NULL;
 }
 
+static void *ec_readonly(char *loc, char *cmd, char *arg)
+{
+	ex_buf->readonly = !ex_buf->readonly;
+	return NULL;
+}
+
 static int eo_val(char *arg)
 {
 	int val = atoi(arg);
@@ -1289,6 +1324,7 @@ static void *eo_##opt(char *loc, char *cmd, char *arg) { inner }
 EO(pac) EO(pr) EO(ai) EO(ish) EO(ic) EO(grp) EO(shape) EO(seq)
 EO(sep) EO(tbs) EO(td) EO(order) EO(hll) EO(hlw) EO(hlp) EO(hlr)
 EO(hl) EO(lim) EO(led) EO(vis) EO(mpt) EO(err)
+EO(exrc)
 
 _EO(left,
 	if (*loc)
@@ -1322,6 +1358,7 @@ static struct excmd {
 	EO(ai),
 	{"ac", ec_setacreg},
 	{"a", ec_insert},
+	EO(exrc),
 	EO(err),
 	{"ef!", ec_fuzz},
 	{"ef", ec_fuzz},
@@ -1346,6 +1383,7 @@ static struct excmd {
 	{"q", ec_quit},
 	{"reg", ec_regprint},
 	{"rd", ec_undoredo},
+	{"ro", ec_readonly},
 	{"r", ec_read},
 	{"wq!", ec_write},
 	{"wq", ec_write},
@@ -1526,17 +1564,98 @@ void ex(void)
 	xgrec--;
 }
 
-void ex_init(char **files, int n)
+void ex_script(FILE *fp)
 {
-	xbufsalloc = MAX(n, xbufsalloc);
+	char done = 0;
+	do {
+		size_t n = 128, i = 0;
+		int c;
+		char *ln = malloc(128);
+		while ((c = fgetc(fp)) != EOF && c != '\n') {
+			if (i >= n - 2) {
+				n += 128;
+				ln = erealloc(ln, n);
+			}
+			ln[i++] = c;
+		}
+		if (!i) {
+			free(ln);
+			done = 1;
+			break;
+		}
+		ln[i] = '\0';
+		ex_command(ln);
+		free(ln);
+	} while(!done);
+}
+
+void load_exrc(char *exrc)
+{
+	struct stat st;
+	if (stat(exrc, &st) == 0) {
+		if (st.st_uid == getuid() && !(st.st_mode & S_IWGRP) && !(st.st_mode & S_IWOTH)) {
+			FILE *fp = fopen(exrc, "r");
+			if (fp) {
+				ex_script(fp);
+				fclose(fp);
+			} else {
+				fprintf(stderr, "Cannot open ~/.exrc\n");
+				exit(EXIT_FAILURE);
+			}
+		} else {
+			fprintf(stderr, "Bad permissions on ~/.exrc\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+}
+
+void ex_init(char **files, int n, char **cmds, int cmdnum)
+{
+	xbufsalloc = MAX(n + !!stdin_fd, xbufsalloc);
 	ec_setbufsmax(NULL, NULL, "");
 	char *s = files[0] ? files[0] : "";
+	int i = n;
 	do {
-		ec_edit("", "e", s);
+		ec_edit(!n && stdin_fd ? NULL : "", "e", s);
 		s = *(++files);
 	} while (--n > 0);
+	if (stdin_fd) {
+		if (i)
+			ec_edit(NULL, "", "");
+		i = lbuf_rd(xb, STDIN_FILENO, 0, lbuf_len(xb));
+		term_done();
+		term_init();
+		lbuf_saved(xb, 1);
+		if (i)
+			ex_print("stdin read failed", msg_ft)
+		else
+			ec_edit("", NULL, ""); /* shebang patch compat */
+		close(0);
+		if (dup2(stdin_fd, 0) == -1) {
+			fprintf(stderr, "error: %s\n", "dup2");
+			close(stdin_fd);
+			exit(1);
+		}
+	}
 	xmpt = 0;
 	xvis &= ~8;
-	if ((s = getenv("EXINIT")))
+	signal(SIGINT, SIG_DFL); /* got past init? ok remove ^c */
+	if ((s = getenv("EXINIT"))) {
 		ex_command(s)
+	} else {
+		char *homeenv = getenv("HOME");
+		if (homeenv) {
+			char exrc[PATH_MAX];
+			snprintf(exrc, sizeof(exrc), "%s/.exrc", homeenv);
+			load_exrc(exrc);
+		}
+	}
+	if (xexrc) {
+		char buf[PATH_MAX];
+		getcwd(buf, PATH_MAX);
+		if (strcmp(buf, getenv("HOME")) != 0)
+			load_exrc(".exrc");
+	}
+	for (int i = 0; i < cmdnum; i++)
+		ex_command(cmds[i])
 }

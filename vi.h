@@ -405,6 +405,7 @@ struct buf {
 	int plen, row, off, top;
 	long mtime;			/* modification time */
 	signed char td;			/* text direction */
+	char readonly;			/* read only */
 };
 /* ex options */
 extern int xleft;
@@ -471,7 +472,7 @@ void *ex_exec(const char *ln);
 void ex_cprint(char *line, char *ft, int r, int c, int left, int flg);
 #define ex_cprint2(line, ft, r, c, left, flg) { RS(2, ex_cprint(line, ft, r, c, left, flg)); }
 #define ex_print(line, ft) { RS(2, ex_cprint(line, ft, -1, 0, 0, 1)); }
-void ex_init(char **files, int n);
+void ex_init(char **files, int n, char** cmds, int cmdnum);
 void ex_bufpostfix(struct buf *p, int clear);
 int ex_krs(rset **krs, int *dir);
 void ex_krsset(char *kwd, int dir);
@@ -534,7 +535,9 @@ char *conf_digraph(int c1, int c2);
 extern int vi_hidch;
 extern int vi_lncol;
 extern char vi_msg[512];
+extern int stdin_fd;
 /* file system */
 extern rset *fsincl;
 extern char *fs_exdir;
 void dir_calc(char *path);
+extern char readonly;
