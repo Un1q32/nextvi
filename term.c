@@ -6,6 +6,8 @@ int term_resized;
 int xrows, xcols;
 unsigned int ibuf_pos, ibuf_cnt, ibuf_sz = 128, icmd_pos;
 unsigned char *ibuf, icmd[4096];
+int stdin_fd;
+static int isig;
 unsigned int texec, tn;
 
 void term_init(void)
@@ -16,11 +18,14 @@ void term_init(void)
 	term_winch = 0;
 	term_resized++;
 	sbuf_make(term_sbuf, 2048)
-	tcgetattr(0, &termios);
+	tcgetattr(stdin_fd, &termios);
 	newtermios = termios;
-	newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
-	tcsetattr(0, TCSAFLUSH, &newtermios);
-	if (!ioctl(0, TIOCGWINSZ, &win)) {
+	if (!isig && stdin_fd)
+		newtermios.c_lflag &= ~(ICANON);
+	else
+		newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
+	tcsetattr(stdin_fd, TCSAFLUSH, &newtermios);
+	if (!ioctl(stdin_fd, TIOCGWINSZ, &win)) {
 		xcols = win.ws_col;
 		xrows = win.ws_row;
 	} else {
@@ -31,6 +36,7 @@ void term_init(void)
 	}
 	xcols = xcols ? xcols : 80;
 	xrows = xrows ? xrows : 25;
+	isig = 1;
 }
 
 void term_done(void)
@@ -39,7 +45,7 @@ void term_done(void)
 		return;
 	term_commit();
 	sbuf_free(term_sbuf)
-	tcsetattr(0, 0, &termios);
+	tcsetattr(stdin_fd, 0, &termios);
 }
 
 void term_clean(void)
@@ -162,11 +168,12 @@ int term_read(int winch)
 			goto ret;
 		}
 		cw = 0;
+		ufd.fd = stdin_fd;
 		re:
 		/* read a single input character */
 		if (xquit < 0 || poll(&ufd, 1, -1) <= 0 ||
-				read(STDIN_FILENO, ibuf, 1) <= 0) {
-			xquit = !isatty(STDIN_FILENO) ? -1 : xquit;
+				read(stdin_fd, ibuf, 1) <= 0) {
+			xquit = !isatty(stdin_fd) ? -1 : xquit;
 			if (term_winch && winch && xquit >= 0) {
 				*ibuf = winch;
 				goto ret;
@@ -309,7 +316,7 @@ sbuf *cmd_pipe(char *cmd, sbuf *ibuf, int oproc, int *status)
 	fds[0].events = POLLIN;
 	fds[1].fd = ifd;
 	fds[1].events = POLLOUT;
-	fds[2].fd = ibuf ? 0 : -1;
+	fds[2].fd = ibuf ? stdin_fd : -1;
 	fds[2].events = POLLIN;
 	while ((fds[0].fd >= 0 || fds[1].fd >= 0) && poll(fds, 3, 200) >= 0) {
 		if (fds[0].revents & POLLIN) {
@@ -352,7 +359,7 @@ sbuf *cmd_pipe(char *cmd, sbuf *ibuf, int oproc, int *status)
 		close(ifd);
 	waitpid(pid, status, 0);
 	signal(SIGTTOU, SIG_IGN);
-	tcsetpgrp(STDIN_FILENO, getpgrp());
+	tcsetpgrp(stdin_fd, getpgrp());
 	signal(SIGTTOU, SIG_DFL);
 	if (!ibuf) {
 		if (term_sbuf)
