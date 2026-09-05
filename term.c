@@ -1,3 +1,16 @@
+int xmouse_col, xmouse_row;
+void term_mouse_on(void)
+{
+	if (xms)
+		write(1, "\x1b[?1000h\x1b[?1006h", 16);
+}
+
+void term_mouse_off(void)
+{
+	if (xms)
+		write(1, "\x1b[?1000l\x1b[?1006l", 16);
+}
+
 static struct termios termios;
 sbuf *term_sbuf;
 int term_record;
@@ -6,6 +19,8 @@ int term_resized;
 int xrows, xcols;
 unsigned int ibuf_pos, ibuf_cnt, ibuf_sz = 128, icmd_pos;
 unsigned char *ibuf, icmd[4096];
+int stdin_fd;
+static int isig;
 unsigned int texec, tn;
 
 void term_init(void)
@@ -16,11 +31,14 @@ void term_init(void)
 	term_winch = 0;
 	term_resized++;
 	sbuf_make(term_sbuf, 2048)
-	tcgetattr(0, &termios);
+	tcgetattr(stdin_fd, &termios);
 	newtermios = termios;
-	newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
-	tcsetattr(0, TCSAFLUSH, &newtermios);
-	if (!ioctl(0, TIOCGWINSZ, &win)) {
+	if (!isig && stdin_fd)
+		newtermios.c_lflag &= ~(ICANON);
+	else
+		newtermios.c_lflag &= ~(ICANON | ISIG | ECHO);
+	tcsetattr(stdin_fd, TCSAFLUSH, &newtermios);
+	if (!ioctl(stdin_fd, TIOCGWINSZ, &win)) {
 		xcols = win.ws_col;
 		xrows = win.ws_row;
 	} else {
@@ -31,15 +49,18 @@ void term_init(void)
 	}
 	xcols = xcols ? xcols : 80;
 	xrows = xrows ? xrows : 25;
+	term_mouse_on();
+	isig = 1;
 }
 
 void term_done(void)
 {
 	if (!term_sbuf)
 		return;
+	term_mouse_off();
 	term_commit();
 	sbuf_free(term_sbuf)
-	tcsetattr(0, 0, &termios);
+	tcsetattr(stdin_fd, 0, &termios);
 }
 
 void term_clean(void)
@@ -137,6 +158,96 @@ void term_push(char *s, unsigned int n)
 	ibuf_cnt += n;
 }
 
+/* Block-read one byte from stdin and append to ibuf.
+ * Returns the byte value, or -1 on failure. */
+static int mouse_pull(void)
+{
+	struct pollfd pfd = {STDIN_FILENO, POLLIN};
+	unsigned char c;
+	if (poll(&pfd, 1, -1) <= 0)
+		return -1;
+	if (read(STDIN_FILENO, &c, 1) <= 0)
+		return -1;
+	if (ibuf_cnt + 1 >= ibuf_sz) {
+		ibuf_sz = ibuf_cnt + 128;
+		ibuf = erealloc(ibuf, ibuf_sz);
+	}
+	ibuf[ibuf_cnt++] = c;
+	if (xrr > 0) {
+		static char buf[2];
+		buf[0] = c;
+		ex_regput(xrr, buf, 1);
+	}
+	return c;
+}
+
+/* Try to parse a mouse event from ibuf starting at ibuf_pos.
+ * Reads bytes one-by-one with a blocking poll, appending each to ibuf.
+ * Works whether or not the caller has already queued '[' and classifier
+ * via pushback — absent bytes are pulled from stdin as needed.
+ * On a valid complete mouse event, advances ibuf_pos past the sequence.
+ * On invalid / non-mouse, leaves everything in ibuf and returns 0 so
+ * term_read() consumes the bytes normally.
+ * Returns: 1 = press, 2 = release, 3 = scroll up, 4 = scroll down, 0 = no match. */
+int term_try_mouse(void)
+{
+	while (ibuf_pos >= ibuf_cnt)
+		if (mouse_pull() < 0)
+			return 0;
+	if (ibuf[ibuf_pos] != '[')
+		return 0;
+	while (ibuf_pos + 1 >= ibuf_cnt)
+		if (mouse_pull() < 0)
+			return 0;
+	/* X10 basic: ESC [ M b x y */
+	if (ibuf[ibuf_pos + 1] == 'M') {
+		while (ibuf_pos + 4 >= ibuf_cnt)
+			if (mouse_pull() < 0)
+				return 0;
+		int btn = ibuf[ibuf_pos + 2] - 32;
+		xmouse_col = ibuf[ibuf_pos + 3] - 32 - 1;
+		xmouse_row = ibuf[ibuf_pos + 4] - 32 - 1;
+		ibuf_pos += 5;
+		return (btn & 3) == 3 ? 2 : 1; /* 3 = button release */
+	}
+	/* SGR 1006: ESC [ < btn ; col ; row M/m */
+	if (ibuf[ibuf_pos + 1] == '<') {
+		unsigned int i = ibuf_pos + 2;
+		while (1) {
+			while (i >= ibuf_cnt)
+				if (mouse_pull() < 0)
+					return 0;
+			if (ibuf[i] == 'M' || ibuf[i] == 'm')
+				break;
+			if (!((ibuf[i] >= '0' && ibuf[i] <= '9') || ibuf[i] == ';'))
+				return 0; /* bad byte — leave data in ibuf for term_read */
+			i++;
+		}
+		unsigned int j = ibuf_pos + 2;
+		int btn = 0, x = 0, y = 0;
+		while (j < i && ibuf[j] >= '0' && ibuf[j] <= '9')
+			btn = btn * 10 + (ibuf[j++] - '0');
+		if (j < i && ibuf[j] == ';') {
+			j++;
+			while (j < i && ibuf[j] >= '0' && ibuf[j] <= '9')
+				x = x * 10 + (ibuf[j++] - '0');
+		}
+		if (j < i && ibuf[j] == ';') {
+			j++;
+			while (j < i && ibuf[j] >= '0' && ibuf[j] <= '9')
+				y = y * 10 + (ibuf[j++] - '0');
+		}
+		int release = (ibuf[i] == 'm');
+		ibuf_pos = i + 1;
+		if (btn == 64 || btn == 65)
+			return btn == 64 ? 3 : 4; /* scroll up / down */
+		xmouse_col = x - 1;
+		xmouse_row = y - 1;
+		return release ? 2 : 1;
+	}
+	return 0;
+}
+
 int term_read(int winch)
 {
 	static struct pollfd ufd = {STDIN_FILENO, POLLIN};
@@ -152,11 +263,12 @@ int term_read(int winch)
 			goto ret;
 		}
 		cw = 0;
+		ufd.fd = stdin_fd;
 		re:
 		/* read a single input character */
 		if (xquit < 0 || poll(&ufd, 1, -1) <= 0 ||
-				read(STDIN_FILENO, ibuf, 1) <= 0) {
-			xquit = !isatty(STDIN_FILENO) ? -1 : xquit;
+				read(stdin_fd, ibuf, 1) <= 0) {
+			xquit = !isatty(stdin_fd) ? -1 : xquit;
 			if (term_winch && winch && xquit >= 0) {
 				*ibuf = winch;
 				goto ret;
@@ -297,7 +409,7 @@ sbuf *cmd_pipe(char *cmd, sbuf *ibuf, int oproc, int *status)
 	fds[0].events = POLLIN;
 	fds[1].fd = ifd;
 	fds[1].events = POLLOUT;
-	fds[2].fd = ibuf ? 0 : -1;
+	fds[2].fd = ibuf ? stdin_fd : -1;
 	fds[2].events = POLLIN;
 	while ((fds[0].fd >= 0 || fds[1].fd >= 0) && poll(fds, 3, 200) >= 0) {
 		if (fds[0].revents & POLLIN) {
@@ -340,7 +452,7 @@ sbuf *cmd_pipe(char *cmd, sbuf *ibuf, int oproc, int *status)
 		close(ifd);
 	waitpid(pid, status, 0);
 	signal(SIGTTOU, SIG_IGN);
-	tcsetpgrp(STDIN_FILENO, getpgrp());
+	tcsetpgrp(stdin_fd, getpgrp());
 	signal(SIGTTOU, SIG_DFL);
 	if (!ibuf) {
 		if (term_sbuf)

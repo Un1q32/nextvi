@@ -1,3 +1,6 @@
+int xexrc = 0;			/* read .exrc from the current directory */
+char readonly = 0;		/* commandline readonly option */
+int xms = 1;			/* mouse in normal mode */
 int xleft;			/* the first visible column */
 int xvis;			/* startup flags */
 int xai = 1;			/* autoindent option */
@@ -12,6 +15,9 @@ int xtd = +1;			/* current text direction */
 int xshape = 1;			/* perform letter shaping */
 int xorder = 1;			/* change the order of characters */
 int xts = 8;			/* number of spaces for tab */
+int xet;			/* expandtab - use spaces for indentation */
+int xsw = 8;			/* shiftwidth - indentation step */
+int xidt = 500;			/* auto-detect indent on file open */
 int xish;			/* interactive shell */
 int xgrp;			/* regex search group */
 int xpac;			/* print autocomplete options */
@@ -168,7 +174,11 @@ static int bufs_open(const char *path, int len)
 	bufs[i].off = 0;
 	bufs[i].top = 0;
 	bufs[i].td = +1;
+	bufs[i].et = 0;
+	bufs[i].sw = 8;
+	bufs[i].ts = 8;
 	bufs[i].mtime = -1;
+	bufs[i].readonly = readonly;
 	return i;
 }
 
@@ -180,6 +190,9 @@ void temp_open(int i, char *name, char *ft)
 	tempbufs[i].off = 0;
 	tempbufs[i].top = 0;
 	tempbufs[i].td = +1;
+	tempbufs[i].et = 0;
+	tempbufs[i].sw = 8;
+	tempbufs[i].ts = 8;
 	tempbufs[i].mtime = -1;
 	tempbufs[i].ft = ft;
 }
@@ -412,10 +425,57 @@ int ex_edit(const char *path, int len)
 	return 0;
 }
 
+static void ex_detect_indent(struct buf *p)
+{
+	int n = lbuf_len(p->lb);
+	int max = n < xidt ? n : xidt;
+	int tab_lines = 0, space_lines = 0;
+	int prev = 0;			/* previous line's leading spaces */
+	int delta[129];			/* delta[k] = times indent jumped by k */
+	memset(delta, 0, sizeof(delta));
+	for (int i = 0; i < max; i++) {
+		char *ln = lbuf_get(p->lb, i);
+		if (!ln)
+			break;
+		int tabs = 0, spaces = 0;
+		char *s = ln;
+		for (; *s == ' ' || *s == '\t'; s++)
+			*s == '\t' ? tabs++ : spaces++;
+		if (*s == '\n' || *s == '\0')	/* blank line: skip, keep prev */
+			continue;
+		if (tabs && !spaces) {
+			tab_lines++;
+		} else if (spaces) {
+			space_lines++;
+			int d = spaces - prev;
+			if (d > 0 && d <= 128)
+				delta[d]++;
+			prev = spaces;
+		} else
+			prev = 0;		/* dedent to column 0 */
+	}
+	if (tab_lines > space_lines) {
+		p->et = xet = 0;
+	} else if (space_lines > 0) {
+		int best = 0, bestn = 0;
+		for (int d = 1; d <= 128; d++)
+			if (delta[d] > bestn) {
+				bestn = delta[d];
+				best = d;
+			}
+		if (best) {
+			p->et = xet = 1;
+			p->sw = xsw = best;
+		}
+	}
+}
+
 static void *ec_edit(char *loc, char *cmd, char *arg)
 {
 	char msg[512];
-	int fd, len, rd = 0, cd = 0;
+	int fd = 0, len, rd = 0, cd = 0;
+	if (!cmd)
+		goto ret;
 	if (arg[0] == '.' && arg[1] == '/')
 		cd = 2;
 	len = strlen(arg+cd);
@@ -429,16 +489,38 @@ static void *ec_edit(char *loc, char *cmd, char *arg)
 		bufs_switch(bufs_open(arg+cd, len));
 		cd = 3; /* XXX: quick hack to indicate new lbuf */
 	}
+	if (access(arg, F_OK) == 0 && access(arg, W_OK) == -1)
+		ex_buf->readonly = 1;
 	readfile(rd =)
 	if (cd == 3 || (!rd && fd >= 0)) {
 		ex_bufpostfix(ex_buf, arg[0]);
 		syn_setft(xb_ft);
 	}
+	if (!loc)
+		return fd < 0 || rd ? xuerr : NULL;
+	ret:
 	snprintf(msg, sizeof(msg), "\"%s\" %dL [%c]",
 			*xb_path ? xb_path : "unnamed", lbuf_len(xb),
 			fd < 0 || rd ? 'f' : 'r');
 	if (!(xvis & 4))
 		ex_print(msg, bar_ft)
+	if (!rd && fd >= 0 && lbuf_len(xb) > 0) {
+		int adv = 0;
+		while (lbuf_len(xb) > adv+1 && xb->ln[adv][0] == '\n')
+			adv++;
+		struct filetype lfts[] = {
+			{FT(sh), "^#!.*/(env[ \t]*)?(sh|bash|zsh|dash)([ \t]*.*)?$"},
+			{FT(py), "^#!.*/(env[ \t]*)?python3?([ \t]*.*)?$"}
+		};
+		char *pats[LEN(lfts)];
+		for (int i = 0; i < LEN(lfts); i++)
+			pats[i] = lfts[i].pat;
+		rset *rs = rset_make(LEN(lfts), pats, 0);
+		int hl = rset_find(rs, xb->ln[adv], NULL, REG_NEWLINE);
+		if (hl >= 0)
+			xb_ft = syn_setft(lfts[hl].ft);
+		rset_free(rs);
+	}
 	return (fd < 0 || rd) && *arg ? xuerr : NULL;
 }
 
@@ -669,6 +751,8 @@ void ex_bufpostfix(struct buf *p, int clear)
 	p->mtime = mtime(p->path);
 	p->ft = syn_filetype(p->path);
 	lbuf_saved(p->lb, clear);
+	if (xidt)
+		ex_detect_indent(p);
 }
 
 static void *ec_setpath(char *loc, char *cmd, char *arg)
@@ -782,6 +866,8 @@ static void *ec_write(char *loc, char *cmd, char *arg)
 	} else if (ret)
 		return "other buffers modified";
 	if (!strchr(cmd, '!')) {
+		if (ex_buf->readonly)
+			return "write failed: readonly option is set";
 		if (!strcmp(xb_path, path) && mtime(path) > ex_buf->mtime)
 			return "write failed: file changed";
 		if (arg[0] && mtime(path) >= 0)
@@ -808,6 +894,29 @@ static void *ec_write(char *loc, char *cmd, char *arg)
 	ex_buf->mtime = mtime(path);
 	xquit = quit;
 	return NULL;
+}
+
+static void *ec_writeall(char *loc, char *cmd, char *arg)
+{
+	char *ret = NULL;
+	int force = strchr(cmd, '!') != NULL;
+	int onlymod = cmd[0] == 'x';
+	int noquit = cmd[0] == 'w' && cmd[1] == 'a';
+	struct buf *obuf = ex_buf;
+	int oidx = istempbuf(obuf) ? -1 : obuf - bufs;
+	for (int i = 0; i < xbufcur; i++) {
+		bufs_switch(i);
+		if (onlymod && !xb->modified)
+			continue;
+		if ((ret = ec_write("", force ? "w!" : "w", ""))) {
+			if (oidx >= 0)
+				bufs_switch(oidx);
+			return ret;
+		}
+	}
+	if (oidx >= 0 && obuf != ex_buf)
+		bufs_switch(oidx);
+	return noquit ? NULL : ec_quit("", force ? "q!" : "q", "");
 }
 
 static void *ec_termexec(char *loc, char *cmd, char *arg)
@@ -1318,6 +1427,70 @@ static void *ec_ft(char *loc, char *cmd, char *arg)
 	return NULL;
 }
 
+/* walk att exactly like syn_highlight to bound its variable length entries */
+static int hi_walk(int *att, int grps)
+{
+	int inc, i = 0;
+	for (; grps; grps--, i += inc) {
+		if (i >= HI_LEN)
+			return 1;
+		inc = 1;
+		if (SYN_SET(ATT, att[i])) {
+			if (i + 1 >= HI_LEN || att[i + 1] < 0)
+				return 1;
+			inc += att[i + 1] + 1;
+		}
+		if (SYN_SET(OATT, att[i])) {
+			if (i + inc >= HI_LEN || att[i + inc] < 0)
+				return 1;
+			inc += att[i + inc] + 1;
+		}
+		if (SYN_SET(BLK, att[i]))
+			inc++;
+	}
+	return i > HI_LEN;
+}
+
+static void *ec_hi(char *loc, char *cmd, char *arg)
+{
+	int i, grps = 1, att[HI_LEN], hl = syn_findhl(4);
+	if (hl < 0)
+		return "filetype has no hi slot";
+	if (*arg) {
+		rset *rs = rset_smake(arg, 0);
+		if (!rs)
+			return "invalid regex";
+		grps = rs->grpnsubc[0] / 2;
+		rset_free(rs);
+	}
+	memcpy(att, hls[hl].att, sizeof(att));
+	if (*loc) {
+		for (i = 0; i < HI_LEN; i++) {
+			att[i] = atoi(loc);
+			while (uc_isdigit(*loc) || *loc == '-'
+					|| *loc == ' ' || *loc == '\t')
+				loc++;
+			if (*loc != ',')
+				break;
+			loc++;
+		}
+		while (++i < HI_LEN)	/* atts of a previous pattern */
+			att[i] = 0;
+	}
+	if (hi_walk(att, grps))
+		return "att too short";
+	memcpy(hls[hl].att, att, sizeof(att));
+	free(hls[hl].pat);
+	hls[hl].pat = NULL;
+	if (*arg) {
+		hls[hl].pat = emalloc(strlen(arg) + 1);
+		strcpy(hls[hl].pat, arg);
+	}
+	syn_blockhl = -1;
+	syn_reloadft(hl, 0);
+	return NULL;
+}
+
 static void *ec_cmap(char *loc, char *cmd, char *arg)
 {
 	if (arg[0])
@@ -1669,6 +1842,12 @@ static void *ec_krsset(char *loc, char *cmd, char *arg)
 	return xkwdrs ? NULL : xserr;
 }
 
+static void *ec_readonly(char *loc, char *cmd, char *arg)
+{
+	ex_buf->readonly = !ex_buf->readonly;
+	return NULL;
+}
+
 static int eo_val(char *arg)
 {
 	return uc_isdigit(*arg) || (*arg == '-' && uc_isdigit(arg[1])) ?
@@ -1685,7 +1864,10 @@ EO(pac) EO(pr) EO(ai) EO(err) EO(fr) EO(ish) EO(ic) EO(mpt)
 EO(rr) EO(shape) EO(seq) EO(order) EO(hll) EO(hlw)
 EO(hlp) EO(hlr) EO(hl) EO(lim) EO(led) EO(vis)
 
+EO(et) EO(idt)
+EO(exrc)
 _EO(ts, xts = *arg ? eo_val(arg) : !xts; xts = MAX(0, xts); RST_NULL(0, 1, 2) return NULL;)
+_EO(sw, if (*arg) xsw = eo_val(arg); return NULL;)
 _EO(td, xtd = *arg ? eo_val(arg) : !xtd; RST_NULL(0, 1) return NULL;)
 _EO(grp, xgrp = (*arg ? eo_val(arg) : !xgrp) * 2; xgrp = MAX(0, xgrp); return NULL;)
 
@@ -1696,6 +1878,15 @@ _EO(left,
 		xleft = atoi(arg);
 	else if (lbuf_get(xb, xrow))
 		xleft = ren_position(lbuf_get(xb, xrow))->pos[MIN(xoff, rstate->n)];
+	return NULL;
+)
+
+_EO(ms,
+	xms = !*arg ? !xms : eo_val(arg);
+	if (xms)
+		write(1, "\x1b[?1000h\x1b[?1006h", 16); /* mouse on */
+	else
+		write(1, "\x1b[?1000l\x1b[?1006l", 16); /* mouse off */
 	return NULL;
 )
 
@@ -1729,9 +1920,11 @@ static struct excmd {
 	{"p", ec_print},
 	EO(ai),
 	{"ac", ec_setacreg},
+	EO(exrc),
 	EO(err),
 	{"ef!", ec_fuzz},
 	{"ef", ec_fuzz},
+	EO(et),
 	{"e!", ec_edit},
 	{"e", ec_edit},
 	{"ft", ec_ft},
@@ -1743,6 +1936,7 @@ static struct excmd {
 	{"f>", ec_find},
 	{"f<", ec_find},
 	{"f", ec_fuzz},
+	EO(idt),
 	EO(ish),
 	{"inc", ec_setincl},
 	EO(ic),
@@ -1752,6 +1946,7 @@ static struct excmd {
 	{"g!", ec_glob},
 	{"g", ec_glob},
 	EO(mpt),
+	EO(ms),
 	{"m!", ec_mark},
 	{"m", ec_mark},
 	{"q!", ec_quit},
@@ -1760,10 +1955,15 @@ static struct excmd {
 	{"reg", ec_regprint},
 	{"re", ec_krsset},
 	{"rd", ec_undoredo},
+	{"ro", ec_readonly},
 	EO(rr),
 	{"r", ec_read},
+	{"wqa!", ec_writeall},
+	{"wqa", ec_writeall},
 	{"wq!", ec_write},
 	{"wq", ec_write},
+	{"wa!", ec_writeall},
+	{"wa", ec_writeall},
 	{"w!", ec_write},
 	{"w", ec_write},
 	{"uc", ec_setenc},
@@ -1774,7 +1974,10 @@ static struct excmd {
 	EO(seq),
 	{"sc!", ec_specials},
 	{"sc", ec_specials},
+	EO(sw),
 	{"s", ec_substitute},
+	{"xa!", ec_writeall},
+	{"xa", ec_writeall},
 	{"x!", ec_write},
 	{"x", ec_write},
 	{"ya!", ec_yank},
@@ -1793,6 +1996,7 @@ static struct excmd {
 	EO(hlp),
 	EO(hlr),
 	EO(hl),
+	{"hi", ec_hi},
 	EO(left),
 	EO(lim),
 	EO(led),
@@ -1956,17 +2160,110 @@ void ex(void)
 	xgrec--;
 }
 
+void ex_script(FILE *fp)
+{
+	char done = 0;
+	do {
+		size_t n = 128, i = 0;
+		int c;
+		char *ln = malloc(128);
+		while ((c = fgetc(fp)) != EOF && c != '\n') {
+			if (i >= n - 2) {
+				n += 128;
+				ln = erealloc(ln, n);
+			}
+			ln[i++] = c;
+		}
+		if (c == EOF) {
+			free(ln);
+			done = 1;
+			break;
+		}
+		if (ln[0] != '#' && ln[0] != '\n') { /* not a comment or empty line */
+			ln[i] = '\0';
+			ex_command(ln);
+		}
+		free(ln);
+	} while(!done);
+}
+
+int load_exrc(char *exrc)
+{
+	struct stat st;
+	if (stat(exrc, &st) == 0) {
+		if (st.st_uid == getuid() && !(st.st_mode & S_IWGRP) && !(st.st_mode & S_IWOTH)) {
+			FILE *fp = fopen(exrc, "r");
+			if (fp) {
+				ex_script(fp);
+				fclose(fp);
+			} else {
+				fprintf(stderr, "Cannot open %s\n", exrc);
+				exit(EXIT_FAILURE);
+			}
+		} else {
+			fprintf(stderr, "Bad permissions on %s\n", exrc);
+			exit(EXIT_FAILURE);
+		}
+	} else
+		return 1;
+	return 0;
+}
+
 void ex_init(char **files, int n)
 {
-	xbufsalloc = MAX(n, xbufsalloc);
+	xbufsalloc = MAX(n + !!stdin_fd, xbufsalloc);
 	ec_setbufsmax(NULL, NULL, "");
 	char *s = files[0] ? files[0] : "";
+	int i = n;
 	do {
 		xmpt = 0;
-		ec_edit("", "e", s);
+		ec_edit(!n && stdin_fd ? NULL : "", "e", s);
 		s = *(++files);
 	} while (--n > 0);
+	if (stdin_fd) {
+		if (i)
+			ec_edit(NULL, "", "");
+		i = lbuf_rd(xb, STDIN_FILENO, 0, lbuf_len(xb));
+		term_done();
+		term_init();
+		lbuf_saved(xb, 1);
+		if (i)
+			ex_print("stdin read failed", msg_ft)
+		else
+			ec_edit("", NULL, ""); /* shebang patch compat */
+		close(0);
+		if (dup2(stdin_fd, 0) == -1) {
+			fprintf(stderr, "error: %s\n", "dup2");
+			close(stdin_fd);
+			exit(1);
+		}
+		xmpt = MIN(xmpt, 1);
+	}
 	xvis &= ~4;
-	if ((s = getenv("EXINIT")))
+	signal(SIGINT, SIG_DFL); /* got past init? ok remove ^c */
+	if ((s = getenv("EXINIT"))) {
 		ex_command(s)
+	} else {
+		char exrc[PATH_MAX];
+		char *homeenv = getenv("HOME");
+		char *xdgconfighomeenv = getenv("XDG_CONFIG_HOME");
+		if (xdgconfighomeenv) {
+			snprintf(exrc, sizeof(exrc), "%s/nextvi/exrc", xdgconfighomeenv);
+			if (!load_exrc(exrc))
+				homeenv = NULL;
+		}
+		if (homeenv) {
+			snprintf(exrc, sizeof(exrc), "%s/.config/nextvi/exrc", homeenv);
+			if (load_exrc(exrc)) {
+				snprintf(exrc, sizeof(exrc), "%s/.exrc", homeenv);
+				load_exrc(exrc);
+			}
+		}
+	}
+	if (xexrc) {
+		char buf[PATH_MAX];
+		getcwd(buf, PATH_MAX);
+		if (strcmp(buf, getenv("HOME")) != 0)
+			load_exrc(".exrc");
+	}
 }

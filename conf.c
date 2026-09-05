@@ -63,6 +63,10 @@ const int ftslen = LEN(fts);
 #define WH1	15	/* bright white */
 
 #define A(...) (int[]){__VA_ARGS__}
+/* att of the :hi slot, HI_LEN entries of variable length as in any other att */
+#define HI	A(WH1 | SYN_BGMK(MA) | SYN_OWR, 0, 0, 0, 0, 0, 0, 0, \
+		0, 0, 0, 0, 0, 0, 0, 0)
+#define HI_LEN	(int)LEN(HI)
 
 /* At least 1 entry is required in this struct for fallback */
 /* lbuf lines are *always "\n\0" terminated, for $ to work one needs to account for '\n' too */
@@ -70,6 +74,7 @@ struct highlight hls[] = {
 	{_ft, NULL, A(CY1 | SYN_BD), 1, 2},  /* <-- optional, used by hll if set */
 	{_ft, NULL, A(RE1 | SYN_BGMK(GR1)), 0, 3}, /* <-- optional, used by hlp if set */
 	{_ft, NULL, A(RE1), 0, 1}, /* <-- optional, used by hlw if set */
+	{_ft, NULL, HI, 0, 4}, /* <-- optional, used by hi if set */
 
 	{FT(c), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(c), "(/\\*(?:(?!^\\*/).)*)|((?:(?!^/\\*)(?!^//).)*\\*/\
@@ -95,6 +100,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 		MA | SYN_OWR | SYN_EATT | SYN_BLK, 1, NA, SYN_BSE | SYN_BSD, BL | SYN_IT), 1},
 	{FT(c), "^.+\\\\\n$", A(CY1 | SYN_EATT | SYN_OATT, 2, NA, BL, 1, NA), 2},
 	{FT(c), NULL, A(RE1), 0, 1},
+	{FT(c), NULL, HI, 0, 4},
 	{FT(c), NULL, A(RE1 | SYN_BGMK(BL1)), 0, 3},
 	{FT(c), "(\\?).+?(:)", A(SYN_IGN, YE | SYN_SATT, 2, NA, CY1,
 				YE | SYN_SATT, 2, NA, CY1), 5},
@@ -103,6 +109,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 	{FT(roff), "^[.'][ \t]*(([sS][hH].*)|(de) (.*)|([^ \t\\\\]{2,}))?.*",
 		A(BL, NA, MA | SYN_BD, BL | SYN_BD, MA | SYN_BD, BL | SYN_BD), 1},
 	{FT(roff), NULL, A(RE1), 0, 1},
+	{FT(roff), NULL, HI, 0, 4},
 	{FT(roff), "\\\\\".*", A(GR | SYN_IT)},
 	{FT(roff), "\\\\{1,2}[*$fgkmns](?:[^[\\(]|\\(..|\\[[^\\]]*\\])", A(YE)},
 	{FT(roff), "\\\\(?:[^[\\(*$fgkmns]|\\(..|\\[[^\\]]*\\])", A(YE)},
@@ -110,6 +117,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 
 	{FT(tex), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(tex), NULL, A(RE1), 0, 1},
+	{FT(tex), NULL, HI, 0, 4},
 	{FT(tex), "\\\\[^[{ \t]+(\\[([^\\]]+)\\])?(\\{([^}]*)})?",
 		A(BL | SYN_BD, NA, YE, NA, MA)},
 	{FT(tex), "\\$[^$]+\\$", A(YE)},
@@ -117,6 +125,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 
 	{FT(mbox), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(mbox), NULL, A(RE1), 0, 1},
+	{FT(mbox), NULL, HI, 0, 4},
 	{FT(mbox), "^From .*20..\n$", A(CY | SYN_BD)},
 	{FT(mbox), "^Subject: (.*)", A(CY | SYN_BD, BL | SYN_BD)},
 	{FT(mbox), "^From: (.*)", A(CY | SYN_BD, GR | SYN_BD)},
@@ -127,6 +136,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 
 	{FT(mk), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(mk), NULL, A(RE1), 0, 1},
+	{FT(mk), NULL, HI, 0, 4},
 	{FT(mk), "([A-Za-z0-9_]*)[ \t]*:?=", A(NA, YE)},
 	{FT(mk), "\\$[\\({][a-zA-Z0-9_]+[\\)}]|\\$\\$", A(YE)},
 	{FT(mk), "#.*", A(GR | SYN_IT)},
@@ -134,6 +144,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 
 	{FT(sh), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(sh), NULL, A(RE1), 0, 1},
+	{FT(sh), NULL, HI, 0, 4},
 	{FT(sh), "\\<(?:break|case|continue|do|done|elif|else|esac|fi|for|if|in|then|until|while)\\>",
 		A(MA | SYN_BD)},
 	{FT(sh), "[ \t](#.*)|^(#.*)", A(NA, GR | SYN_IT, GR | SYN_IT)},
@@ -146,6 +157,7 @@ bool|const|inline|restrict|auto|(true|false|_?_?asm_?_?|mem(?:set|cpy|cmp)|free|
 
 	{FT(py), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(py), NULL, A(RE1), 0, 1},
+	{FT(py), NULL, HI, 0, 4},
 	{FT(py), "#.*", A(GR)},
 	{FT(py), "\\<(?:and|break|class|continue|def|del|elif|else|except|finally|\
 for|from|global|if|import|in|is|lambda|not|or|pass|print|raise|return|try|while)\\>", A(MA)},
@@ -160,6 +172,7 @@ for|from|global|if|import|in|is|lambda|not|or|pass|print|raise|return|try|while)
 	{FT(js), "(/\\*(?:(?!^\\*/).)*)|((?:(?!^/\\*).)*\\*/(?![\"'`]))",
 		A(GR1 | SYN_IT, GR1 | SYN_BLK, SYN_BSE | SYN_BEDP, GR1 | SYN_BLK, SYN_BSE | SYN_BSD)},
 	{FT(js), NULL, A(RE1), 0, 1},
+	{FT(js), NULL, HI, 0, 4},
 	{FT(js), "\\<(?:abstract|arguments|await|boolean|break|byte|case|catch|char|class|\
 const|continue|debugger|default|delete|do|double|else|enum|eval|export|extends|false|\
 final|finally|float|for|function|goto|if|implements|import|in|instanceof|int|interface|\
@@ -226,9 +239,11 @@ fr|deg|rad|turn|grad|ms|s|hz|khz|dpi|dpcm|dppx|%|))\\>", A(RE1 | SYN_ATT, 4, 69,
 		A(NA | SYN_IGN, YE | SYN_OWR | SYN_EATT, 2, AY1 | SYN_BATT, GR1 | SYN_BATT, MA1), 4},
 	{FT(html), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(html), NULL, A(RE1), 0, 1},
+	{FT(html), NULL, HI, 0, 4},
 	{FT(html), NULL, A(AY | SYN_BGMK(RE1)), 0, 3},
 
 	{FT(diff), NULL, A(CY1 | SYN_BD), 1, 2},
+	{FT(diff), NULL, HI, 0, 4},
 	{FT(diff), "^-.*", A(RE)},
 	{FT(diff), "^\\+.*", A(GR)},
 	{FT(diff), "^@.*", A(CY)},
@@ -239,6 +254,7 @@ fr|deg|rad|turn|grad|ms|s|hz|khz|dpi|dpcm|dppx|%|))\\>", A(RE1 | SYN_ATT, 4, 69,
 		A(BL | SYN_IT, BL | SYN_BLK, SYN_BSE | SYN_BEDP, BL | SYN_BLK, SYN_BSE | SYN_BSD)},
 	{FT(go), NULL, A(RE1 | SYN_BGMK(BL1)), 0, 3},
 	{FT(go), NULL, A(RE1), 0, 1},
+	{FT(go), NULL, HI, 0, 4},
 	{FT(go), "\\<(?:any|bool|byte|comparable|complex64|complex128|error|float32|float64|\
 int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr|\
 chan|interface|map|struct|(true|false|iota|nil|append|cap|close|complex|copy|delete|imag|\
@@ -254,6 +270,7 @@ return|select|switch|type|var))\\>", A(GR1, BL1 | SYN_BD, YE1)},
 
 	{FT(md), NULL, A(CY1 | SYN_BD), 1, 2},
 	{FT(md), NULL, A(RE1), 0, 1},
+	{FT(md), NULL, HI, 0, 4},
 	{FT(md), "^# .*", A(RE | SYN_BD)},
 	{FT(md), "^## .*", A(GR | SYN_BD)},
 	{FT(md), "^### .*", A(YE | SYN_BD)},
@@ -297,9 +314,9 @@ return|select|switch|type|var))\\>", A(GR1, BL1 | SYN_BD, YE1)},
 (?:'[0-9]+)|([.%$]|[0-9 \t]*)?))(?:([-*-+/%])[ \t]*[0-9]+[ \t]*)*(?:[ \t]*\\|(?:[^|\\\\]|\\\\.?)*\\|?[ \t]*)*)[ \t]*\
 (?:([,;]#?)[ \t]*((?:\\|(?:[^|\\\\]|\\\\.?)*\\|?[ \t]*)*(?:(?:<(?:[^<\\\\]|\\\\.?)*<?|>(?:[^>\\\\]|\\\\.?)*>?)|\
 (?:'[0-9]+)|([.$]|[0-9 \t]*)?))(?:([-*-+/%])[ \t]*([0-9]+)[ \t]*)*(?:[ \t]*\\|(?:[^|\\\\]|\\\\.?)*\\|?)*[ \t]*)*)\
-((pac|pr|ai|ish|err|fr|ic|grp|mpt|rr|shape|seq|ts|td|order|hl[lwpr]?|left|lim|led|vis)\
-|[@&!dj]|m!?|=\\?{0,1}|\\?~|\\?{1,2}[?!]?|b[psx]?|p[uh]?|ac|e[f!]?!?|f[-+><tdp]?|inc|i|sc!?|\
-(?:g!?|s)[ \t]?(.)?|q!?|reg?\\+?|rd?|w(?:q!|[q!])?|u[czbd]|x!?|ya[!+]?|cm!?|cd?)?",
+((pac|sw|et|idt|pr|ai|ish|err|fr|ic|grp|mpt|ms|rr|shape|seq|ts|td|order|hl[lwpr]?|left|lim|led|vis)\
+|[@&!dj]|m!?|=\\?{0,1}|\\?~|\\?{1,2}[?!]?|b[psx]?|p[uh]?|ac|e[f!]?!?|f[-+><tdp]?|hi|inc|i|sc!?|\
+(?:g!?|s)[ \t]?(.)?|q!?|reg?\\+?|ro|rd?|w(?:q!|q?a!?|[q!])?|u[czbd]|xa?!?|ya[!+]?|cm!?|cd?)?",
 		A(BL1 | SYN_BD, RE, RE, RE, RE, WH1, MA1, RE, RE, WH1, RE, GR1, CY1, MA1)},
 	{ex_ft, "\\\\(.)", A(AY1 | SYN_BD, YE)},
 	{ex_ft, "!(?:[^!\\\\]|\\\\.?)*!?|%(?:#|[0-9]+|@([0-9]+))?", A(WH1 | SYN_BD, CY1)},
@@ -312,7 +329,7 @@ return|select|switch|type|var))\\>", A(GR1, BL1 | SYN_BD, YE1)},
 		A(GR1 | SYN_BD | SYN_ATT, 1, GR1, AY1, YE, WH1, AY1, YE, WH1, AY1, YE, WH1, AY1, YE, WH1), 2},
 
 	{bar_ft, "^(\".*\").*(\\[[wrf]\\]).*$", A(AY1 | SYN_BD, BL, RE)},
-	{bar_ft, "^<(.+)> (?:[^ ]+ )*([0-9]+L) ([0-9]+W) (S[0-9]+) (O[0-9]+) (C[0-9]+)$",
+	{bar_ft, "^<(.+)> (?:[^ ]+ )*([0-9]+L) ([0-9]+W) (S[0-9]+) (O[0-9]+) (C[0-9]+).*$",
 		A(AY1 | SYN_BD, RE1, BL, YE, MA, CY1, YE1)},
 	{bar_ft, "^(\".*\").* ([0-9]{1,3}%) (L[0-9]+) (C[0-9]+) (B-?[0-9]+)?.*$",
 		A(AY1 | SYN_BD, BL, RE1, BL, YE1, GR)},
@@ -327,6 +344,10 @@ const int hlslen = LEN(hls);
 
 /* how to highlight text in the reverse direction */
 const int conf_hlrev = SYN_BGMK(8);
+
+/* cursor shape escapes (DECSCUSR): set on entering insert, reset on leaving */
+char conf_curins[] = "\x1b[5 q";	/* insert mode: vertical bar */
+char conf_curnorm[] = "\x1b[2 q";	/* normal mode: block */
 
 /* right-to-left characters */
 #define CR2L		"ء-يپچژکگی‌-‍؛،»«؟ً-ْٔ"

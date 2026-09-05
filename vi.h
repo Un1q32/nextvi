@@ -333,6 +333,9 @@ void term_pos(int r, int c);
 void term_kill(void);
 void term_room(int n);
 int term_read(int winch);
+int term_try_mouse(void);
+void term_mouse_on(void);
+void term_mouse_off(void);
 void term_commit(void);
 char *term_att(int att);
 void term_push(char *s, unsigned int n);
@@ -403,6 +406,7 @@ void led_render(char *s0, int cbeg, int cend);
 #define led_crender(msg, row, col, beg, end) _led_render(msg, row, col, beg, end, term_kill();)
 char *led_read(int *kmap, int c);
 int led_pos(char *s, int pos);
+int led_col(char *s, int col);
 void led_done(void);
 
 /* ex.c: command mode */
@@ -413,7 +417,13 @@ struct buf {
 	int plen, row, off, top;
 	long mtime;			/* modification time */
 	signed char td;			/* text direction */
+	int et;				/* expandtab - use spaces for indentation */
+	int sw;				/* shiftwidth - indentation step */
+	int ts;				/* tabspace - number of spaces for tab */
+	char readonly;			/* read only */
 };
+/* mouse state */
+extern int xmouse_col, xmouse_row;
 /* ex options */
 extern int xleft;
 extern int xvis;
@@ -429,6 +439,9 @@ extern int xtd;
 extern int xshape;
 extern int xorder;
 extern int xts;
+extern int xet;
+extern int xsw;
+extern int xidt;
 extern int xish;
 extern int xgrp;
 extern int xpac;
@@ -437,6 +450,7 @@ extern int xpr;
 extern int xlim;
 extern int xseq;
 extern int xerr;
+extern int xms;
 extern int xfr;
 extern int xrr;
 /* global variables */
@@ -470,12 +484,18 @@ extern struct buf *ex_pbuf;
 	xoff = buf->off; \
 	xtop = buf->top; \
 	xtd = buf->td; \
+	xet = buf->et; \
+	xsw = buf->sw; \
+	xts = buf->ts; \
 
 #define exbuf_save(buf) \
 	buf->row = xrow; \
 	buf->off = xoff; \
 	buf->top = xtop; \
 	buf->td = xtd; \
+	buf->et = xet; \
+	buf->sw = xsw; \
+	buf->ts = xts; \
 
 #define bufs_switchwft(idx) \
 { if (&bufs[idx] != ex_buf) { bufs_switch(idx); syn_setft(xb_ft); } } \
@@ -545,14 +565,18 @@ extern struct placeholder _ph[];
 extern struct placeholder *ph;
 extern int phlen;
 extern const int conf_hlrev;
+extern char conf_curins[];
+extern char conf_curnorm[];
 char **conf_kmap(int id);
 int conf_kmapfind(char *name);
 char *conf_digraph(int c1, int c2);
 
 /* vi.c: main */
+extern int stdin_fd;
 void vi(int init);
 extern int vi_hidch;
 extern int vi_lncol;
 /* filesystem */
 extern rset *fsincl;
 void dir_calc(char *path);
+extern char readonly;
